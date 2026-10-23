@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getApps, initializeApp } from 'firebase/app'
 import { browserLocalPersistence, browserSessionPersistence, createUserWithEmailAndPassword, getAuth, GoogleAuthProvider, onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signInWithPopup, signOut as firebaseSignOut, updateProfile } from 'firebase/auth'
 import { AuthContext } from './authContext.js'
-import { api } from '../lib/api.js'
+import { api, setAuthTokenProvider } from '../lib/api.js'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -14,6 +14,7 @@ const firebaseConfig = {
 }
 const isConfigured = Object.values(firebaseConfig).every(Boolean)
 const auth = isConfigured ? getAuth(getApps().length ? getApps()[0] : initializeApp(firebaseConfig)) : null
+setAuthTokenProvider(() => auth?.currentUser?.getIdToken() || null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -64,4 +65,3 @@ async function saveUser(firebaseUser, profile = {}) {
     },
   })
 }
-
