@@ -1,0 +1,53 @@
+import { useState } from 'react'
+import { FiArrowLeft, FiBell, FiBook, FiCreditCard, FiGrid, FiHelpCircle, FiMenu, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
+import { Link, NavLink } from 'react-router-dom'
+import '../../styles/admin.css'
+
+// Set built: true when a page/route exists for the item.
+const navItems = [
+  { label: 'Dashboard', to: '/admin', icon: FiGrid, built: true },
+  { label: 'Classes', to: '/admin/classes', icon: FiBook, built: false },
+  { label: 'Directory', to: '/admin/directory', icon: FiUsers, built: false },
+  { label: 'Payments', to: '/admin/payments', icon: FiCreditCard, built: false },
+]
+
+export default function AdminLayout({ title, subtitle, children }) {
+  const [open, setOpen] = useState(false)
+
+  return <div className="admin-shell">
+    <aside className={open ? 'admin-sidebar open' : 'admin-sidebar'}>
+      <Link className="admin-logo" to="/"><span className="admin-logo-mark">T</span><strong>Teach<span>OS</span></strong><small>Admin</small></Link>
+
+      <nav className="admin-nav" aria-label="Admin navigation">
+        {navItems.map(({ label, to, icon: Icon, built }) => built
+          ? <NavLink key={label} to={to} end className={({ isActive }) => isActive ? 'admin-nav-item active' : 'admin-nav-item'} onClick={() => setOpen(false)}><Icon /> {label}</NavLink>
+          : <button key={label} className="admin-nav-item" disabled title="Coming soon"><Icon /> {label}<em>Soon</em></button>)}
+      </nav>
+
+      <div className="admin-sidebar-foot">
+        <div className="admin-sidebar-actions">
+          <button className="admin-nav-item" disabled><FiSettings /> Settings<em>Soon</em></button>
+          <button className="admin-nav-item" disabled><FiHelpCircle /> Support<em>Soon</em></button>
+        </div>
+        <div className="admin-term"><b>Admin portal</b>Academic term 2026-27</div>
+        <Link className="admin-site-link" to="/"><FiArrowLeft /> Back to TeachOS</Link>
+      </div>
+    </aside>
+    <div className={open ? 'admin-backdrop open' : 'admin-backdrop'} onClick={() => setOpen(false)} />
+
+    <div className="admin-main">
+      <header className="admin-topbar">
+        <div className="admin-title">
+          <button className="admin-icon-btn admin-menu-btn" onClick={() => setOpen(!open)} aria-label="Toggle navigation">{open ? <FiX /> : <FiMenu />}</button>
+          <div><h1>{title}</h1><p>{subtitle}</p></div>
+        </div>
+        <div className="admin-tools">
+          <div className="admin-search"><FiSearch /><input aria-label="Search" placeholder="Search teachers, batches..." /></div>
+          <button className="admin-icon-btn" aria-label="Notifications"><FiBell /><i /></button>
+          <span className="admin-avatar">A</span>
+        </div>
+      </header>
+      <main className="admin-content">{children}</main>
+    </div>
+  </div>
+}
