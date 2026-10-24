@@ -2,24 +2,217 @@
 @import "tailwindcss";
 
 :root {
-  --brand-primary: #2a14b4;
-  --brand-primary-deep: #1b0c86;
-  --brand-green: #006c4a;
-  --brand-orange: #7d4200;
-  --brand-ink: #0d1c2e;
-  --brand-muted: #464554;
-  --brand-soft: #777586;
-  --brand-bg: #f8f9ff;
-  --brand-tint: #eff4ff;
-  --brand-tint-strong: #e6eeff;
-  --brand-tint-accent: #e3dfff;
-  --brand-line: #dce9ff;
+  --brand-primary: #7858c9;
+  --brand-primary-deep: #5d42a8;
+  --brand-green: #369c7d;
+  --brand-orange: #9a6b31;
+  --brand-ink: #302a3f;
+  --brand-muted: #706b7f;
+  --brand-soft: #9993a8;
+  --brand-bg: #f8f6ff;
+  --brand-tint: #f0ebfb;
+  --brand-tint-strong: #e8e0f8;
+  --brand-tint-accent: #ddd2f5;
+  --brand-line: #e5def1;
+  --brand-mint: #e5f5ef;
+  --brand-glass: rgb(255 255 255 / 72%);
+  --brand-glass-border: rgb(255 255 255 / 82%);
+  --brand-shadow: 0 18px 50px rgb(80 57 130 / 10%);
   font-family: 'DM Sans', sans-serif;
   color: var(--brand-ink);
-  background: var(--brand-bg);
+  background:
+    radial-gradient(ellipse at 12% 8%, rgb(218 205 248 / 48%), transparent 38rem),
+    radial-gradient(ellipse at 92% 42%, rgb(209 241 228 / 44%), transparent 34rem),
+    var(--brand-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; background: transparent; }
+button, input, select, textarea { accent-color: var(--brand-primary); }
+::selection { background: #dcd0f4; color: #302a3f; }
+
+.home-page,
+.teacher-dashboard,
+.workspace-shell,
+.signin-page,
+.register-page {
+  background:
+    radial-gradient(ellipse at 12% 8%, rgb(218 205 248 / 42%), transparent 38rem),
+    radial-gradient(ellipse at 92% 42%, rgb(209 241 228 / 38%), transparent 34rem),
+    var(--brand-bg);
+}
+
+.home-header,
+.workspace-topbar,
+.dashboard-topbar {
+  border-color: rgb(229 222 241 / 78%) !important;
+  background: rgb(255 255 255 / 68%) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.hero-panel,
+.search-panel,
+.stat-strip > div,
+.category-card,
+.listing-card,
+.faculty-card,
+.reason-card,
+.workspace-card,
+.workspace-metrics article,
+.workspace-class-form,
+.dashboard-panel {
+  border: 1px solid var(--brand-glass-border);
+  background: var(--brand-glass);
+  box-shadow: var(--brand-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.dashboard-sidebar,
+.workspace-sidebar,
+.signin-panel,
+.register-card {
+  border-color: var(--brand-glass-border) !important;
+  background: rgb(255 255 255 / 76%) !important;
+  box-shadow: var(--brand-shadow);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.hero-panel {
+  background:
+    linear-gradient(128deg, rgb(255 255 255 / 92%), rgb(243 237 255 / 74%) 58%, rgb(228 246 239 / 78%)) !important;
+}
+
+.home-primary,
+.signin-submit,
+.register-submit,
+.workspace-primary,
+.workspace-quick-button,
+.dashboard-quick-action,
+.dashboard-primary-button,
+.home-nav a:hover,
+.home-nav a.active {
+  border-color: transparent;
+  background: linear-gradient(135deg, #8868d8, #6246ad) !important;
+  box-shadow: 0 8px 22px rgb(105 76 178 / 22%);
+}
+
+.home-primary:hover,
+.signin-submit:hover,
+.register-submit:hover,
+.workspace-quick-button:hover,
+.workspace-primary:hover,
+.dashboard-quick-action:hover,
+.dashboard-primary-button:hover {
+  filter: brightness(.96);
+}
+
+.home-secondary,
+.dashboard-secondary-button,
+.workspace-secondary {
+  border-color: rgb(222 212 239 / 90%);
+  background: rgb(255 255 255 / 72%);
+  box-shadow: 0 5px 16px rgb(80 57 130 / 6%);
+  backdrop-filter: blur(12px);
+}
+
+.workspace-info,
+.dashboard-panel-heading,
+.workspace-user,
+.workspace-topbar label,
+.workspace-toolbar > label,
+.dashboard-profile,
+.lesson-time {
+  background-color: rgb(240 235 251 / 80%);
+}
+
+.attendance-average {
+  background: conic-gradient(#8a6cda var(--attendance-value), #dff1e9 0) !important;
+}
+
+.dashboard-success,
+.workspace-notice {
+  border-color: #bfe8d7;
+  background: rgb(229 245 239 / 88%);
+  color: #286d59;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .hero-panel,
+  .search-panel,
+  .stat-strip > div,
+  .category-card,
+  .listing-card,
+  .faculty-card,
+  .reason-card,
+  .workspace-card,
+  .workspace-metrics article,
+  .workspace-class-form,
+  .dashboard-panel {
+    background: #fff;
+  }
+}
+
+.home-page .home-header,
+.workspace-shell .workspace-topbar,
+.teacher-dashboard .dashboard-topbar {
+  background: rgb(255 255 255 / 70%);
+}
+
+.home-page .hero-panel {
+  border: 1px solid var(--brand-glass-border);
+  background: linear-gradient(128deg, rgb(255 255 255 / 94%), rgb(243 237 255 / 82%) 58%, rgb(228 246 239 / 84%));
+  box-shadow: var(--brand-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.home-page .search-panel,
+.home-page .stat-strip > div,
+.home-page .category-card,
+.home-page .listing-card,
+.home-page .faculty-card,
+.home-page .reason-card,
+.workspace-shell .workspace-card,
+.workspace-shell .workspace-metrics article,
+.workspace-shell .workspace-class-form,
+.teacher-dashboard .dashboard-panel {
+  border-color: var(--brand-glass-border);
+  background: var(--brand-glass);
+  box-shadow: var(--brand-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.home-page .home-nav a:hover,
+.home-page .home-nav a.active,
+.home-page .home-primary,
+.signin-page .signin-submit,
+.register-page .register-submit,
+.workspace-shell .workspace-primary,
+.workspace-shell .workspace-quick-button,
+.teacher-dashboard .dashboard-quick-action,
+.teacher-dashboard .dashboard-primary-button {
+  background: linear-gradient(135deg, #8868d8, #6246ad);
+  box-shadow: 0 8px 22px rgb(105 76 178 / 22%);
+}
+
+.signin-page .signin-panel,
+.register-page .register-card,
+.teacher-dashboard .dashboard-sidebar,
+.workspace-shell .workspace-sidebar {
+  border-color: var(--brand-glass-border);
+  background: rgb(255 255 255 / 78%);
+  box-shadow: var(--brand-shadow);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.workspace-shell .workspace-info,
+.teacher-dashboard .dashboard-panel-heading {
+  background: rgb(240 235 251 / 82%);
+}
