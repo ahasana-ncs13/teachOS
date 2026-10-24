@@ -7,6 +7,10 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import './App.css'
 import AdminDashboard from './pages/admin/AdminDashboard'
+import AdminClasses from './pages/admin/AdminClasses'
+import AdminDirectory from './pages/admin/AdminDirectory'
+import AdminPayments from './pages/admin/AdminPayments'
+import AdminSettings from './pages/admin/AdminSettings'
 
 function App() {
   return (
@@ -16,6 +20,10 @@ function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/admin" element={<AdminDashboard />} />
+      <Route path="/admin/classes" element={<AdminClasses />} />
+      <Route path="/admin/directory" element={<AdminDirectory />} />
+      <Route path="/admin/payments" element={<AdminPayments />} />
+      <Route path="/admin/settings" element={<AdminSettings />} />
       <Route path="/dashboard/attendance" element={<ProtectedRoute><AttendancePage /></ProtectedRoute>} />
       <Route path="/dashboard/classes" element={<ProtectedRoute><ClassesPage /></ProtectedRoute>} />
       <Route path="/dashboard/directory" element={<ProtectedRoute><DirectoryPage /></ProtectedRoute>} />

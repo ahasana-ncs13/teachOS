@@ -1,3 +1,5 @@
 {
-    "terminal.integrated.cwd": "D:\\PROJECTS\\teachOS"
+    "terminal.integrated.cwd": "D:\\PROJECTS\\teachOS",
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 100
 }

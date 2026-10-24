@@ -20,7 +20,7 @@ let databaseReady = false
 const sampleDashboard = {
   isSample: true,
   attendanceClassId: 'calculus-201',
-  classes: [
+  classes: [ 
     {
       id: 'calculus-201',
       title: 'Advanced Calculus 201',

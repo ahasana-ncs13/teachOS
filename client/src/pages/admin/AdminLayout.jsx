@@ -3,12 +3,11 @@ import { FiArrowLeft, FiBell, FiBook, FiCreditCard, FiGrid, FiHelpCircle, FiMenu
 import { Link, NavLink } from 'react-router-dom'
 import '../../styles/admin.css'
 
-// Set built: true when a page/route exists for the item.
 const navItems = [
-  { label: 'Dashboard', to: '/admin', icon: FiGrid, built: true },
-  { label: 'Classes', to: '/admin/classes', icon: FiBook, built: false },
-  { label: 'Directory', to: '/admin/directory', icon: FiUsers, built: false },
-  { label: 'Payments', to: '/admin/payments', icon: FiCreditCard, built: false },
+  { label: 'Dashboard', to: '/admin', icon: FiGrid },
+  { label: 'Classes', to: '/admin/classes', icon: FiBook },
+  { label: 'Directory', to: '/admin/directory', icon: FiUsers },
+  { label: 'Payments', to: '/admin/payments', icon: FiCreditCard },
 ]
 
 export default function AdminLayout({ title, subtitle, children }) {
@@ -19,14 +18,14 @@ export default function AdminLayout({ title, subtitle, children }) {
       <Link className="admin-logo" to="/"><span className="admin-logo-mark">T</span><strong>Teach<span>OS</span></strong><small>Admin</small></Link>
 
       <nav className="admin-nav" aria-label="Admin navigation">
-        {navItems.map(({ label, to, icon: Icon, built }) => built
+        {navItems.map(({ label, to, icon: Icon, built = true }) => built
           ? <NavLink key={label} to={to} end className={({ isActive }) => isActive ? 'admin-nav-item active' : 'admin-nav-item'} onClick={() => setOpen(false)}><Icon /> {label}</NavLink>
           : <button key={label} className="admin-nav-item" disabled title="Coming soon"><Icon /> {label}<em>Soon</em></button>)}
       </nav>
 
       <div className="admin-sidebar-foot">
         <div className="admin-sidebar-actions">
-          <button className="admin-nav-item" disabled><FiSettings /> Settings<em>Soon</em></button>
+          <NavLink className={({ isActive }) => isActive ? 'admin-nav-item active' : 'admin-nav-item'} to="/admin/settings" onClick={() => setOpen(false)}><FiSettings /> Settings</NavLink>
           <button className="admin-nav-item" disabled><FiHelpCircle /> Support<em>Soon</em></button>
         </div>
         <div className="admin-term"><b>Admin portal</b>Academic term 2026-27</div>

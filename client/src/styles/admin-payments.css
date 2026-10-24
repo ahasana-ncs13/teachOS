@@ -1,0 +1,89 @@
+.admin-payments { --payments-primary: var(--blue); --payments-muted: var(--muted); color: var(--ink); }
+.payments-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+.payments-heading h2 { margin: 0; color: var(--blue); font: 700 25px/1.25 'Plus Jakarta Sans', sans-serif; letter-spacing: -.5px; }
+.payments-heading p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.payments-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 39px; padding: 0 14px; border: 0; border-radius: 7px; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; transition: background .18s, transform .18s; }
+.payments-primary:hover { transform: translateY(-1px); background: var(--blue-deep); }
+.payments-primary:focus-visible, .payments-secondary:focus-visible, .payout-amount button:focus-visible, .transaction-search:focus-within, .transaction-status-filter:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+.payments-demo-banner { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--tint); color: var(--muted); font-size: 10px; line-height: 1.5; }
+.payments-demo-banner svg { flex: 0 0 auto; color: var(--blue); }
+.payments-overview { display: grid; grid-template-columns: minmax(0, 2fr) minmax(275px, 1fr); gap: 17px; margin-bottom: 22px; align-items: stretch; }
+.payments-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.payments-metric { position: relative; min-height: 173px; overflow: hidden; padding: 17px 15px; border: 1px solid rgba(220,233,255,.85); border-radius: 10px; background: rgba(255,255,255,.84); box-shadow: 0 3px 9px rgba(24,38,80,.045); }
+.payments-metric-heading { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 5px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.payments-metric-heading > svg { flex: 0 0 auto; padding: 4px; border-radius: 50%; background: var(--tint-3); color: var(--blue); font-size: 21px; }
+.payments-metric-heading > b { padding: 4px 6px; border-radius: 999px; background: var(--tint-3); color: var(--blue); font-size: 8px; letter-spacing: 0; white-space: nowrap; }
+.payments-metric > strong { position: relative; z-index: 1; display: block; margin-top: 20px; color: var(--blue); font: 750 clamp(23px, 2.3vw, 34px)/1 'Plus Jakarta Sans', sans-serif; letter-spacing: -1px; }
+.payments-metric > small { position: relative; z-index: 1; display: flex; align-items: center; gap: 4px; margin-top: 10px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+.payments-metric.revenue > small { color: var(--green); }
+.payments-metric > small svg { font-size: 12px; }
+.payments-metric-art { position: absolute; top: 41px; right: 5px; color: var(--blue); font: 900 80px/1 'Plus Jakarta Sans', sans-serif; opacity: .055; pointer-events: none; }
+.payments-metric.payout-total .payments-metric-art { color: var(--green); }
+.payments-metric.commission { background: linear-gradient(145deg, #fff 45%, var(--tint) 100%); }
+.payments-pending { display: flex; min-width: 0; flex-direction: column; padding: 16px; border: 1px solid rgba(220,233,255,.85); border-radius: 10px; background: rgba(255,255,255,.84); box-shadow: 0 3px 9px rgba(24,38,80,.045); }
+.payments-pending > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.payments-pending h3 { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--blue); font: 700 13px 'Plus Jakarta Sans', sans-serif; }
+.payments-pending h3 svg { color: var(--blue); font-size: 15px; }
+.payments-pending > header > span { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.pending-payout-list { display: grid; gap: 7px; }
+.pending-payout { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); }
+.payout-avatar { display: grid; flex: 0 0 auto; place-items: center; width: 31px; height: 31px; border-radius: 50%; background: var(--tint-3); color: var(--blue); font-size: 9px; font-weight: 700; }
+.payout-person { display: grid; min-width: 0; gap: 3px; }
+.payout-person strong { overflow: hidden; color: var(--ink); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.payout-person small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.payout-amount { display: grid; flex: 0 0 auto; justify-items: end; gap: 3px; margin-left: auto; }
+.payout-amount strong { color: var(--blue); font-size: 9px; }
+.payout-amount button { padding: 0; border: 0; background: transparent; color: var(--blue); font-size: 9px; font-weight: 700; cursor: pointer; }
+.payments-secondary { min-height: 35px; padding: 0 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font-size: 9px; font-weight: 650; cursor: pointer; transition: background .18s; }
+.payments-secondary:hover { background: var(--tint); }
+.pending-review-all { width: 100%; margin-top: 10px; }
+.transactions-panel { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 3px 9px rgba(24,38,80,.045); }
+.transactions-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
+.transactions-heading h3 { margin: 0; color: var(--blue); font: 700 15px 'Plus Jakarta Sans', sans-serif; }
+.transaction-controls { display: flex; align-items: center; gap: 8px; }
+.transaction-search, .transaction-status-filter { display: flex; align-items: center; gap: 7px; height: 35px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); }
+.transaction-search { width: 220px; }
+.transaction-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 10px; }
+.transaction-search input::placeholder { color: var(--soft); }
+.transaction-status-filter select { max-width: 115px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 9px; cursor: pointer; }
+.transactions-scroll { overflow-x: auto; }
+.transactions-table { width: 100%; min-width: 750px; border-collapse: collapse; text-align: left; }
+.transactions-table th { padding: 12px 13px; border-bottom: 1px solid var(--line); background: var(--tint); color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.transactions-table td { padding: 13px; border-bottom: 1px solid #eef0f6; color: var(--muted); font-size: 10px; white-space: nowrap; }
+.transactions-table tbody tr:last-child td { border-bottom: 0; }
+.transactions-table tbody tr:hover { background: #fafaff; }
+.transaction-id { color: var(--soft); font: 10px Consolas, monospace; }
+.transactions-table .amount-column { text-align: right; }
+.transaction-amount { color: var(--blue) !important; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.transaction-amount.outgoing { color: var(--ink) !important; }
+.transaction-status-column { text-align: center; }
+.transaction-status { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: 8px; font-weight: 700; }
+.transaction-status.paid { background: var(--tint-3); color: var(--blue-deep); }
+.transaction-status.pending { background: var(--tint-2); color: var(--muted); }
+.transaction-status.failed { background: #ffdad6; color: var(--red); }
+.transactions-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; padding: 9px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; }
+.transactions-empty { display: flex; min-height: 180px; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; }
+.transactions-empty svg { color: var(--soft); font-size: 22px; }
+.transactions-empty strong { color: var(--ink); font-size: 12px; }
+.transactions-empty span { font-size: 10px; }
+.payments-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--tint); color: var(--blue-deep); font-size: 10px; }
+.payments-notice > svg { color: var(--green); }
+.payments-notice button { display: grid; place-items: center; width: 24px; height: 24px; margin-left: auto; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.payments-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; overflow-y: auto; padding: 20px; background: rgba(13,28,46,.5); }
+.payments-modal { position: relative; width: min(100%, 420px); padding: 25px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 20px 70px rgba(13,28,46,.25); }
+.payments-modal-close { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 6px; background: var(--tint); color: var(--muted); cursor: pointer; }
+.payments-modal-kicker { margin: 0 0 7px; color: var(--blue); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.payments-modal h2 { margin: 0; color: var(--ink); font: 700 20px 'Plus Jakarta Sans', sans-serif; }
+.payout-review-details { display: grid; gap: 6px; margin: 16px 0; }
+.payout-review-details p { margin: 0; color: var(--muted); font-size: 11px; }
+.payout-review-details strong { color: var(--blue); font: 700 25px 'Plus Jakarta Sans', sans-serif; }
+.payout-review-details span, .payout-review-summary { color: var(--muted); font-size: 10px; }
+.payout-review-summary { margin: 13px 0; }
+.payout-review-warning { display: flex; align-items: flex-start; gap: 9px; margin-top: 17px; padding: 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--tint); color: var(--muted); font-size: 10px; line-height: 1.5; }
+.payout-review-warning svg { flex: 0 0 auto; margin-top: 1px; color: var(--blue); }
+.payout-dialog-done { display: flex; min-width: 78px; margin: 17px 0 0 auto; }
+.payments-modal-close:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+@media (max-width: 1100px) { .payments-overview { grid-template-columns: 1fr; } .payments-pending { max-width: none; } }
+@media (max-width: 700px) { .payments-metrics { grid-template-columns: 1fr; } .payments-metric { min-height: 145px; } .payments-heading { align-items: flex-start; flex-direction: column; } .transactions-heading { align-items: stretch; flex-direction: column; } .transaction-controls { width: 100%; } .transaction-search { flex: 1; width: auto; } }
+@media (max-width: 480px) { .payments-heading h2 { font-size: 22px; } .payments-heading > button { width: 100%; } .transactions-heading { padding: 13px; } .transactions-footer { align-items: flex-start; flex-direction: column; } .transaction-status-filter { max-width: 120px; } .payments-modal { padding: 22px 18px; } }
