@@ -1,0 +1,98 @@
+body .admin-shell,
+body .teacher-dashboard,
+body .workspace-shell,
+body .home-page,
+body .signin-page,
+body .register-page {
+  background-color: var(--brand-bg);
+  background-image:
+    radial-gradient(circle at 8% 4%, rgb(118 87 214 / 11%), transparent 29%),
+    radial-gradient(circle at 96% 92%, rgb(88 173 139 / 12%), transparent 32%);
+  background-attachment: fixed;
+}
+
+.admin-shell .admin-sidebar,
+.admin-shell .admin-topbar,
+.home-page .home-header,
+.teacher-dashboard .dashboard-sidebar,
+.teacher-dashboard .dashboard-topbar,
+.workspace-shell .workspace-sidebar,
+.workspace-shell .workspace-topbar {
+  background: var(--brand-glass);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.admin-shell .admin-stat:not(.dark),
+.admin-shell .admin-panel,
+.admin-shell .class-management-card,
+.admin-shell .directory-table-panel,
+.teacher-dashboard .dashboard-panel,
+.workspace-shell .workspace-card,
+.workspace-shell .workspace-class-form,
+.workspace-shell .workspace-table-wrap,
+.home-page .hero-panel,
+.home-page .search-panel,
+.home-page .category-card,
+.home-page .listing-card,
+.home-page .faculty-card,
+.home-page .reason-grid > div,
+.signin-page .signin-form-wrap,
+.register-page .register-card {
+  border-color: rgb(118 87 214 / 15%);
+  background: var(--brand-glass);
+  box-shadow: 0 14px 38px rgb(40 36 61 / 8%);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.admin-shell .admin-stat.dark,
+.home-page .instructor-cta {
+  background: var(--brand-gradient);
+}
+
+.admin-shell .admin-nav-item.active,
+.admin-shell .admin-site-link,
+.home-page .home-primary,
+.signin-page .signin-submit,
+.register-page .register-submit,
+.teacher-dashboard .dashboard-quick-action,
+.teacher-dashboard .dashboard-primary-button,
+.workspace-shell .workspace-quick-button,
+.workspace-shell .workspace-primary {
+  background: var(--brand-gradient);
+  box-shadow: 0 8px 20px rgb(118 87 214 / 20%);
+}
+
+.home-page .home-primary:hover,
+.signin-page .signin-submit:hover,
+.register-page .register-submit:hover,
+.teacher-dashboard .dashboard-quick-action:hover,
+.teacher-dashboard .dashboard-primary-button:hover,
+.workspace-shell .workspace-quick-button:hover,
+.workspace-shell .workspace-primary:hover {
+  filter: saturate(1.08) brightness(.96);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .admin-shell .admin-stat:not(.dark),
+  .admin-shell .admin-panel,
+  .teacher-dashboard .dashboard-panel,
+  .workspace-shell .workspace-card,
+  .home-page .category-card,
+  .home-page .listing-card,
+  .home-page .faculty-card {
+    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  }
+
+  .admin-shell .admin-stat:not(.dark):hover,
+  .teacher-dashboard .dashboard-panel:hover,
+  .workspace-shell .workspace-card:hover,
+  .home-page .category-card:hover,
+  .home-page .listing-card:hover,
+  .home-page .faculty-card:hover {
+    border-color: rgb(118 87 214 / 28%);
+    box-shadow: 0 18px 42px rgb(40 36 61 / 12%);
+    transform: translateY(-2px);
+  }
+}

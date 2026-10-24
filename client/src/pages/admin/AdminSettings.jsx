@@ -6,14 +6,14 @@ import '../../styles/admin-settings.css'
 const STORAGE_KEY = 'teachos-admin-branding'
 const MAX_LOGO_BYTES = 2 * 1024 * 1024
 const colors = [
-  { label: 'Blue', value: '#2563eb' },
-  { label: 'Purple', value: '#7c3aed' },
-  { label: 'Teal', value: '#0f766e' },
-  { label: 'Rose', value: '#be123c' },
+  { label: 'Soft Lavender', value: '#7657d6' },
+  { label: 'Royal Purple', value: '#5d47b8' },
+  { label: 'Mint', value: '#58ad8b' },
+  { label: 'Lilac', value: '#9b8be8' },
 ]
 const defaultSettings = {
   logo: '',
-  primaryColor: '#2a14b4',
+  primaryColor: '#7657d6',
   headingFont: 'Inter',
   bodyFont: 'Inter',
   studentDarkMode: true,

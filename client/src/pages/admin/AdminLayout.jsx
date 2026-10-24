@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FiArrowLeft, FiBell, FiBook, FiCreditCard, FiGrid, FiHelpCircle, FiMenu, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
+import { FiArrowLeft, FiBell, FiBook, FiCreditCard, FiFileText, FiGrid, FiHelpCircle, FiMenu, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
 import { Link, NavLink } from 'react-router-dom'
 import '../../styles/admin.css'
 
@@ -7,6 +7,7 @@ const navItems = [
   { label: 'Dashboard', to: '/admin', icon: FiGrid },
   { label: 'Classes', to: '/admin/classes', icon: FiBook },
   { label: 'Directory', to: '/admin/directory', icon: FiUsers },
+  { label: 'Records', to: '/admin/records', icon: FiFileText },
   { label: 'Payments', to: '/admin/payments', icon: FiCreditCard },
 ]
 

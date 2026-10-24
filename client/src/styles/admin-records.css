@@ -1,0 +1,18 @@
+.admin-records-page { display: grid; gap: 18px; }
+.records-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.records-heading h2 { margin: 6px 0 4px; color: var(--ink); font: 700 21px/1.25 'Plus Jakarta Sans', sans-serif; }
+.records-heading p, .records-table-title p { margin: 0; color: var(--muted); font-size: 12px; }
+.records-filter, .records-search { display: flex; min-height: 40px; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: rgb(255 255 255 / 78%); color: var(--soft); }
+.records-filter select, .records-search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 12px; }
+.records-filter select { min-width: 150px; cursor: pointer; }
+.records-search { max-width: 440px; }
+.records-search input::placeholder { color: var(--soft); }
+.records-demo-note { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; border: 1px solid #e6ddff; border-radius: 9px; background: #f6f2ff; color: #554585; font-size: 12px; line-height: 1.55; }
+.records-demo-note svg { flex: 0 0 auto; margin-top: 1px; }
+.records-table-panel { overflow: hidden; }
+.records-table-title { padding-bottom: 15px; }
+.records-table-title h2 { margin: 0 0 5px; }
+.records-empty { display: grid; min-height: 220px; justify-items: center; align-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.records-empty svg { font-size: 20px; }
+.records-empty strong { color: var(--ink); font-size: 14px; }
+@media (max-width: 680px) { .records-heading { align-items: stretch; flex-direction: column; }.records-filter { align-self: start; }.records-search { max-width: none; }.records-table { min-width: 680px; } }

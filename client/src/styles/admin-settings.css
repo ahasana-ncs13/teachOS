@@ -14,7 +14,7 @@
 .settings-section-link small { margin-left: auto; color: var(--soft); font-size: 8px; }
 .settings-section-dot { width: 7px; height: 7px; margin: 0 4px; border: 1px solid var(--soft); border-radius: 50%; }
 .settings-canvas { display: grid; gap: 16px; min-width: 0; }
-.settings-card { position: relative; display: grid; gap: 22px; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.9); box-shadow: 0 4px 18px rgba(24,38,80,.04); }
+.settings-card { position: relative; display: grid; gap: 22px; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.9); box-shadow: 0 4px 18px rgba(8,51,68,.04); }
 .settings-card-heading { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .settings-card-heading h3 { margin: 0; color: var(--ink); font: 700 17px/1.3 'Plus Jakarta Sans', sans-serif; }
 .settings-card-heading p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }

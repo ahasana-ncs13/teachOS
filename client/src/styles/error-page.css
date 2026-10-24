@@ -1,0 +1,16 @@
+.error-page { display: grid; min-height: 100vh; place-items: center; padding: 28px 18px; background: radial-gradient(circle at 12% 15%, rgb(118 87 214 / 13%), transparent 32%), radial-gradient(circle at 90% 88%, rgb(88 173 139 / 14%), transparent 32%), var(--brand-bg); color: var(--brand-ink); font-family: 'DM Sans', sans-serif; }
+.error-card { width: min(100%, 610px); padding: clamp(26px, 6vw, 54px); border: 1px solid rgb(118 87 214 / 18%); border-radius: 22px; background: var(--brand-glass); box-shadow: 0 24px 70px rgb(40 36 61 / 12%); text-align: center; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.error-brand { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 30px; color: var(--brand-ink); font: 700 19px/1 'Plus Jakarta Sans', sans-serif; text-decoration: none; }
+.error-brand > span:last-child, .error-brand strong span { color: var(--brand-primary); }
+.error-brand-mark { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 9px; background: var(--brand-gradient); color: white; font: 800 16px Georgia, serif; }
+.error-code { color: transparent; background: var(--brand-gradient); background-clip: text; font: 800 clamp(86px, 18vw, 138px)/.95 'Plus Jakarta Sans', sans-serif; letter-spacing: -.1em; }
+.error-eyebrow { display: inline-block; margin-top: 17px; color: var(--brand-primary-deep); font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.error-card h1 { margin: 10px 0 8px; font: 700 clamp(23px, 4vw, 31px)/1.2 'Plus Jakarta Sans', sans-serif; letter-spacing: -.04em; }
+.error-card p { max-width: 420px; margin: 0 auto; color: var(--brand-muted); font-size: 14px; line-height: 1.7; }
+.error-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 25px; }
+.error-primary, .error-secondary { display: inline-flex; min-height: 43px; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; border: 1px solid transparent; border-radius: 10px; font: inherit; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.error-primary { background: var(--brand-gradient); box-shadow: 0 8px 20px rgb(118 87 214 / 20%); color: white; }
+.error-secondary { border-color: var(--brand-line); background: rgb(255 255 255 / 72%); color: var(--brand-primary-deep); }
+.error-primary:hover, .error-secondary:hover { transform: translateY(-1px); }
+.error-reference { display: block; margin-top: 30px; color: var(--brand-soft); font: 500 10px 'JetBrains Mono', monospace; }
+@media (max-width: 480px) { .error-actions { align-items: stretch; flex-direction: column; }.error-actions > * { width: 100%; } }

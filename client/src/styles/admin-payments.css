@@ -9,7 +9,7 @@
 .payments-demo-banner svg { flex: 0 0 auto; color: var(--blue); }
 .payments-overview { display: grid; grid-template-columns: minmax(0, 2fr) minmax(275px, 1fr); gap: 17px; margin-bottom: 22px; align-items: stretch; }
 .payments-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.payments-metric { position: relative; min-height: 173px; overflow: hidden; padding: 17px 15px; border: 1px solid rgba(220,233,255,.85); border-radius: 10px; background: rgba(255,255,255,.84); box-shadow: 0 3px 9px rgba(24,38,80,.045); }
+.payments-metric { position: relative; min-height: 173px; overflow: hidden; padding: 17px 15px; border: 1px solid rgba(220,233,255,.85); border-radius: 10px; background: rgba(255,255,255,.84); box-shadow: 0 3px 9px rgba(8,51,68,.045); }
 .payments-metric-heading { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 5px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .payments-metric-heading > svg { flex: 0 0 auto; padding: 4px; border-radius: 50%; background: var(--tint-3); color: var(--blue); font-size: 21px; }
 .payments-metric-heading > b { padding: 4px 6px; border-radius: 999px; background: var(--tint-3); color: var(--blue); font-size: 8px; letter-spacing: 0; white-space: nowrap; }
@@ -20,7 +20,7 @@
 .payments-metric-art { position: absolute; top: 41px; right: 5px; color: var(--blue); font: 900 80px/1 'Plus Jakarta Sans', sans-serif; opacity: .055; pointer-events: none; }
 .payments-metric.payout-total .payments-metric-art { color: var(--green); }
 .payments-metric.commission { background: linear-gradient(145deg, #fff 45%, var(--tint) 100%); }
-.payments-pending { display: flex; min-width: 0; flex-direction: column; padding: 16px; border: 1px solid rgba(220,233,255,.85); border-radius: 10px; background: rgba(255,255,255,.84); box-shadow: 0 3px 9px rgba(24,38,80,.045); }
+.payments-pending { display: flex; min-width: 0; flex-direction: column; padding: 16px; border: 1px solid rgba(220,233,255,.85); border-radius: 10px; background: rgba(255,255,255,.84); box-shadow: 0 3px 9px rgba(8,51,68,.045); }
 .payments-pending > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .payments-pending h3 { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--blue); font: 700 13px 'Plus Jakarta Sans', sans-serif; }
 .payments-pending h3 svg { color: var(--blue); font-size: 15px; }
@@ -37,7 +37,7 @@
 .payments-secondary { min-height: 35px; padding: 0 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font-size: 9px; font-weight: 650; cursor: pointer; transition: background .18s; }
 .payments-secondary:hover { background: var(--tint); }
 .pending-review-all { width: 100%; margin-top: 10px; }
-.transactions-panel { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 3px 9px rgba(24,38,80,.045); }
+.transactions-panel { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 3px 9px rgba(8,51,68,.045); }
 .transactions-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
 .transactions-heading h3 { margin: 0; color: var(--blue); font: 700 15px 'Plus Jakarta Sans', sans-serif; }
 .transaction-controls { display: flex; align-items: center; gap: 8px; }
@@ -69,8 +69,8 @@
 .payments-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--tint); color: var(--blue-deep); font-size: 10px; }
 .payments-notice > svg { color: var(--green); }
 .payments-notice button { display: grid; place-items: center; width: 24px; height: 24px; margin-left: auto; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
-.payments-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; overflow-y: auto; padding: 20px; background: rgba(13,28,46,.5); }
-.payments-modal { position: relative; width: min(100%, 420px); padding: 25px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 20px 70px rgba(13,28,46,.25); }
+.payments-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; overflow-y: auto; padding: 20px; background: rgba(8,51,68,.5); }
+.payments-modal { position: relative; width: min(100%, 420px); padding: 25px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 20px 70px rgba(8,51,68,.25); }
 .payments-modal-close { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 6px; background: var(--tint); color: var(--muted); cursor: pointer; }
 .payments-modal-kicker { margin: 0 0 7px; color: var(--blue); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .payments-modal h2 { margin: 0; color: var(--ink); font: 700 20px 'Plus Jakarta Sans', sans-serif; }

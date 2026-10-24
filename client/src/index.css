@@ -2,18 +2,20 @@
 @import "tailwindcss";
 
 :root {
-  --brand-primary: #2a14b4;
-  --brand-primary-deep: #1b0c86;
-  --brand-green: #006c4a;
-  --brand-orange: #7d4200;
-  --brand-ink: #0d1c2e;
-  --brand-muted: #464554;
-  --brand-soft: #777586;
-  --brand-bg: #f8f9ff;
-  --brand-tint: #eff4ff;
-  --brand-tint-strong: #e6eeff;
-  --brand-tint-accent: #e3dfff;
-  --brand-line: #dce9ff;
+  --brand-primary: #7657d6;
+  --brand-primary-deep: #5d47b8;
+  --brand-green: #58ad8b;
+  --brand-orange: #a16207;
+  --brand-ink: #28243d;
+  --brand-muted: #655f7a;
+  --brand-soft: #8f89a5;
+  --brand-bg: #f8f7fc;
+  --brand-tint: #f0ecfa;
+  --brand-tint-strong: #e8e2f7;
+  --brand-tint-accent: #dff5eb;
+  --brand-line: #e7e2f1;
+  --brand-glass: rgb(255 255 255 / 76%);
+  --brand-gradient: linear-gradient(135deg, #7657d6 0%, #927ce8 58%, #72c9a6 100%);
   font-family: 'DM Sans', sans-serif;
   color: var(--brand-ink);
   background: var(--brand-bg);
@@ -22,4 +24,6 @@
   -webkit-font-smoothing: antialiased;
 }
 
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; background: var(--brand-bg); color: var(--brand-ink); }
+::selection { background: var(--brand-primary); color: #fff; }
+:focus-visible { outline: 3px solid rgb(118 87 214 / 35%); outline-offset: 2px; }

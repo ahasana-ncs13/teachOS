@@ -1,21 +1,10 @@
 import { useState } from 'react'
 import { FiAward, FiArrowRight, FiArrowUp, FiBriefcase, FiCheck, FiChevronRight, FiCreditCard, FiFileText, FiFilter, FiInfo, FiPieChart, FiTrendingUp, FiUserPlus, FiUsers, FiX } from 'react-icons/fi'
+import { Link } from 'react-router-dom'
 import AdminLayout from './AdminLayout'
-
-const COMMISSION_RATE = 0.05
-
-// Sample data. Replace with API data once the backend is ready.
-const teachers = [
-  { id: 1, name: 'Dr. K. Rahman', department: 'Physics', earned: 42000, status: 'paid' },
-  { id: 2, name: 'Eng. Anisul Haque', department: 'Computer Science', earned: 58500, status: 'processing' },
-  { id: 3, name: 'Sarah Jenkins', department: 'English (IELTS)', earned: 31500, status: 'paid' },
-  { id: 4, name: 'Master M. Hossain', department: 'Mathematics', earned: 49000, status: 'failed' },
-  { id: 5, name: 'Dr. Nusrat Jahan', department: 'Biology', earned: 24000, status: 'paid' },
-]
+import { COMMISSION_RATE, formatTaka as taka, getInitials as initials, teacherEarningRecords as teachers } from './adminRecords.data'
 
 const avatarClasses = ['avatar-a', 'avatar-b', 'avatar-c', 'avatar-d', 'avatar-a']
-const taka = (n) => `৳${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
-const initials = (name) => name.replace(/^(Dr\.|Eng\.|Prof\.)\s*/, '').split(' ').map((part) => part[0]).join('').slice(0, 2)
 
 export default function AdminDashboard() {
   const [filter, setFilter] = useState('all')
@@ -76,7 +65,7 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
-        <div className="admin-panel-foot"><button className="admin-link-btn" onClick={() => notify('The full records page is not built yet.')}>View all records <FiArrowRight /></button></div>
+        <div className="admin-panel-foot"><Link className="admin-link-btn" to="/admin/records">View all records <FiArrowRight /></Link></div>
       </div>
 
       <aside className="admin-side">
