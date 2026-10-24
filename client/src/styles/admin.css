@@ -40,6 +40,10 @@
 .admin-icon-btn i { position: absolute; top: 7px; right: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
 .admin-avatar { display: grid; place-items: center; width: 33px; height: 33px; border-radius: 50%; background: #d9eee3; color: var(--green); font-size: 12px; font-weight: 700; }
 .admin-content { max-width: 1440px; margin: 0 auto; padding: 34px 40px 60px; }
+.admin-data-error, .admin-data-notice { margin: 0 0 16px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; line-height: 1.5; }
+.admin-data-error { border-color: #efb8b3; background: #fff4f2; color: #942e2a; }
+.admin-data-notice { border-color: #b8e6d0; background: #f0fbf5; color: #24684a; }
+.admin-data-state { padding: 24px; color: var(--muted); font-size: 12px; }
 
 /* Stats */
 .admin-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }

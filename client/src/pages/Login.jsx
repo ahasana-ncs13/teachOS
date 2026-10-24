@@ -20,7 +20,7 @@ export default function Login() {
     setResetNotice('')
     try {
       const signedInUser = await signIn(email, password, remember)
-      const target = signedInUser.role === 'admin' ? '/admin' : signedInUser.role === 'teacher' ? '/dashboard' : '/'
+      const target = signedInUser.role === 'admin' ? '/admin' : signedInUser.role === 'teacher' ? '/dashboard' : '/student'
       navigate(target, { replace: true })
     } catch (error) {
       setSubmitError(getSignInErrorMessage(error))
@@ -51,7 +51,7 @@ export default function Login() {
     setSocialLoading(provider)
     try {
       const signedInUser = await signInWithProvider(provider)
-      navigate(signedInUser.role === 'admin' ? '/admin' : signedInUser.role === 'teacher' ? '/dashboard' : '/', { replace: true })
+      navigate(signedInUser.role === 'admin' ? '/admin' : signedInUser.role === 'teacher' ? '/dashboard' : '/student', { replace: true })
     } catch { setSubmitError(`${provider} sign-in is unavailable. Enable this provider in Firebase Authentication.`) } finally { setSocialLoading('') }
   }
 

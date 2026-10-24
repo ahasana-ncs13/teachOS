@@ -37,6 +37,7 @@
 .payments-secondary { min-height: 35px; padding: 0 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font-size: 9px; font-weight: 650; cursor: pointer; transition: background .18s; }
 .payments-secondary:hover { background: var(--tint); }
 .pending-review-all { width: 100%; margin-top: 10px; }
+.admin-payments .payments-overview { display: block; }
 .transactions-panel { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 3px 9px rgba(24,38,80,.045); }
 .transactions-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
 .transactions-heading h3 { margin: 0; color: var(--blue); font: 700 15px 'Plus Jakarta Sans', sans-serif; }

@@ -1,130 +1,75 @@
-import { useMemo, useState } from 'react'
-import { FiArrowRight, FiBookOpen, FiCalendar, FiClock, FiFileText, FiFilter, FiGrid, FiList, FiPlus, FiSearch, FiUser, FiUsers, FiX } from 'react-icons/fi'
+import { useEffect, useMemo, useState } from 'react'
+import { FiBookOpen, FiFilter, FiGrid, FiList, FiMapPin, FiSearch, FiTrash2, FiUser } from 'react-icons/fi'
+import { api } from '../../lib/api'
 import AdminLayout from './AdminLayout'
 import '../../styles/admin-classes.css'
 
-const startingClasses = [
-  { id: 1, department: 'Mathematics', title: 'Advanced Calculus', teacher: 'Prof. Sarah Jenkins', schedule: 'Mon/Wed/Fri 10:00 AM', enrolled: 24, capacity: 30, status: 'Active' },
-  { id: 2, department: 'Sciences', title: 'Intro to Physics', teacher: 'Dr. Alan Vance', schedule: 'Tue/Thu 1:00 PM', enrolled: 45, capacity: 50, status: 'Upcoming' },
-  { id: 3, department: 'Humanities', title: 'Modern World History', teacher: 'Prof. Elena Rostova', schedule: 'Term Ended Fall 2023', enrolled: 32, capacity: 32, status: 'Completed' },
-]
-
-const statusClass = (status) => status.toLowerCase()
+const taka = (fee) => fee ? `৳${Number(fee).toLocaleString('en-BD')}` : 'Free'
 
 export default function AdminClasses() {
-  const [classes, setClasses] = useState(startingClasses)
+  const [listings, setListings] = useState([])
   const [query, setQuery] = useState('')
-  const [department, setDepartment] = useState('')
-  const [status, setStatus] = useState('')
+  const [category, setCategory] = useState('')
   const [view, setView] = useState('grid')
-  const [showForm, setShowForm] = useState(false)
-  const [selectedClass, setSelectedClass] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
-  const filteredClasses = useMemo(() => classes.filter((item) => (
-    (!department || item.department === department)
-    && (!status || item.status.toLowerCase() === status)
-    && `${item.title} ${item.teacher} ${item.department}`.toLowerCase().includes(query.toLowerCase())
-  )), [classes, department, query, status])
+  useEffect(() => {
+    let current = true
+    api.get('/listings', { params: { page: 1, limit: 100 } }).then(({ data }) => {
+      if (current) setListings(data.listings || [])
+    }).catch((requestError) => {
+      if (current) setError(requestError.response?.data?.message || 'Could not load course listings.')
+    }).finally(() => {
+      if (current) setLoading(false)
+    })
+    return () => { current = false }
+  }, [])
 
-  const createClass = (event) => {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const created = {
-      id: Date.now(),
-      title: form.get('title').trim(),
-      department: form.get('department'),
-      teacher: form.get('teacher').trim(),
-      schedule: form.get('schedule').trim(),
-      enrolled: 0,
-      capacity: Number(form.get('capacity')),
-      status: 'Upcoming',
+  const filteredListings = useMemo(() => listings.filter((item) => (
+    (!category || item.category === category)
+    && `${item.name} ${item.teacherName} ${item.location} ${item.category}`.toLowerCase().includes(query.trim().toLowerCase())
+  )), [category, listings, query])
+
+  const removeListing = async (item) => {
+    if (!window.confirm(`Remove "${item.name}" from the public TeachOS home page?`)) return
+    setError('')
+    setNotice('')
+    try {
+      await api.delete(`/listings/${encodeURIComponent(item._id)}`)
+      setListings((current) => current.filter((listing) => listing._id !== item._id))
+      setNotice('Listing was removed from the public home page.')
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Could not remove this listing.')
     }
-    setClasses((items) => [created, ...items])
-    setShowForm(false)
   }
 
-  return <AdminLayout title="Classes" subtitle="Manage course offerings and enrollment">
+  return <AdminLayout title="Classes & listings" subtitle="Manage published courses and batches">
     <div className="admin-classes">
-      <header className="classes-heading">
-        <div>
-          <h2>Classes Management</h2>
-          <p>Overview and management of all active course offerings.</p>
-        </div>
-        <div className="classes-heading-actions">
-          <label className="classes-search"><FiSearch /><input aria-label="Search classes" placeholder="Search classes..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-          <button className="classes-create" type="button" onClick={() => setShowForm(true)}><FiPlus /> Create New Class</button>
-        </div>
+      <header className="classes-heading"><div><h2>Published listings</h2><p>Changes here are reflected on the public TeachOS home page.</p></div>
+        <label className="classes-search"><FiSearch /><input aria-label="Search listings" placeholder="Search listings..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       </header>
-
-      <section className="classes-filters" aria-label="Class filters">
-        <div className="classes-filter-label"><FiFilter /><span>Filters</span></div>
-        <label className="classes-select-label"><span className="sr-only">Filter by department</span>
-          <select value={department} onChange={(event) => setDepartment(event.target.value)}>
-            <option value="">All Departments</option>
-            <option>Mathematics</option><option>Sciences</option><option>Humanities</option><option>Arts</option>
-          </select>
-        </label>
-        <label className="classes-select-label"><span className="sr-only">Filter by status</span>
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="">All Statuses</option>
-            <option value="active">Active</option><option value="upcoming">Upcoming</option><option value="completed">Completed</option>
-          </select>
-        </label>
-        <div className="classes-view-toggle" aria-label="Class display mode">
+      {error && <div className="admin-data-error" role="alert">{error}</div>}
+      {notice && <div className="admin-data-notice" role="status">{notice}</div>}
+      <section className="classes-filters" aria-label="Listing filters">
+        <div className="classes-filter-label"><FiFilter /><span>Filter category</span></div>
+        <label className="classes-select-label"><span className="sr-only">Filter by category</span><select value={category} onChange={(event) => setCategory(event.target.value)}>
+          <option value="">All categories</option><option>Online Course</option><option>Offline Batch</option><option>Exam Preparation</option><option>Skill Course</option>
+        </select></label>
+        <div className="classes-view-toggle" aria-label="Listing display mode">
           <button type="button" aria-label="Grid view" aria-pressed={view === 'grid'} onClick={() => setView('grid')}><FiGrid /></button>
           <button type="button" aria-label="List view" aria-pressed={view === 'list'} onClick={() => setView('list')}><FiList /></button>
         </div>
       </section>
-
-      {filteredClasses.length ? <section className={`classes-cards ${view}`} aria-label="Classes">
-        {filteredClasses.map((item) => {
-          const progress = item.capacity ? Math.min((item.enrolled / item.capacity) * 100, 100) : 0
-          return <article className={`class-management-card ${statusClass(item.status)}`} key={item.id}>
-            <div className="class-management-top">
-              <div><span className={`class-department ${item.department.toLowerCase()}`}>{item.department}</span><h3>{item.title}</h3></div>
-              <span className={`class-status ${statusClass(item.status)}`}><i />{item.status}</span>
-            </div>
-            <div className="class-management-meta">
-              <p><FiUser /><span>{item.teacher}</span></p>
-              <p><FiClock /><span>{item.schedule}</span></p>
-              <p><FiUsers /><span>{item.status === 'Completed' ? `${item.enrolled} Students Completed` : `${item.enrolled} / ${item.capacity} Students Enrolled`}</span></p>
-            </div>
-            <div className="class-management-foot">
-              {item.status === 'Completed'
-                ? <span className="class-archive-label">Archived Record</span>
-                : <div className="class-enrollment-progress" role="progressbar" aria-label={`${item.title} enrollment`} aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100"><span style={{ width: `${progress}%` }} /></div>}
-              <button type="button" onClick={() => setSelectedClass(item)}>{item.status === 'Completed' ? 'View Report' : 'Manage'} {item.status === 'Completed' ? <FiFileText /> : <FiArrowRight />}</button>
-            </div>
-          </article>
-        })}
-        <button className="class-create-tile" type="button" onClick={() => setShowForm(true)}>
-          <span className="class-create-icon"><FiPlus /></span><strong>Create New Class</strong>
-          <span>Set up a new course, assign teachers, and open enrollment.</span>
-        </button>
-      </section> : <div className="classes-empty"><FiBookOpen /><strong>No classes found</strong><span>Try changing your search or filters.</span></div>}
+      {loading ? <div className="classes-empty" role="status">Loading listings...</div> : filteredListings.length ? <section className={`classes-cards ${view}`} aria-label="Published listings">
+        {filteredListings.map((item) => <article className="class-management-card active" key={item._id}>
+          <div className="class-management-top"><div><span className="class-department">{item.category}</span><h3>{item.name}</h3></div><span className="class-status active"><i /> Published</span></div>
+          <div className="class-management-meta"><p><FiUser /><span>{item.teacherName || 'TeachOS teacher'}</span></p><p><FiMapPin /><span>{item.location}</span></p><p><FiBookOpen /><span>{item.duration} · {taka(item.fee)}</span></p></div>
+          <div className="class-management-foot"><span className="class-archive-label">{item.createdAt ? `Published ${new Date(item.createdAt).toLocaleDateString()}` : 'Published'}</span>
+            <button type="button" onClick={() => removeListing(item)}><FiTrash2 /> Remove listing</button></div>
+        </article>)}
+      </section> : <div className="classes-empty"><FiSearch /><strong>{listings.length ? 'No matching listings' : 'No published listings'}</strong><span>{listings.length ? 'Try changing your search or category filter.' : 'Teacher listings published from their dashboard appear here and on the home page.'}</span></div>}
     </div>
-
-    {showForm && <div className="classes-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowForm(false) }}>
-      <section className="classes-modal" role="dialog" aria-modal="true" aria-labelledby="new-class-title">
-        <button className="classes-modal-close" type="button" aria-label="Close" onClick={() => setShowForm(false)}><FiX /></button>
-        <p className="classes-modal-kicker">Class setup</p><h2 id="new-class-title">Create New Class</h2><p>Enter the course details to add it to the class list.</p>
-        <form onSubmit={createClass}>
-          <label>Class name<input name="title" required maxLength="100" placeholder="e.g. Introduction to Biology" /></label>
-          <label>Department<select name="department" required defaultValue=""><option value="" disabled>Select department</option><option>Mathematics</option><option>Sciences</option><option>Humanities</option><option>Arts</option></select></label>
-          <label>Teacher<input name="teacher" required maxLength="100" placeholder="Teacher name" /></label>
-          <div className="classes-modal-row"><label>Schedule<input name="schedule" required maxLength="100" placeholder="Mon/Wed 10:00 AM" /></label><label>Capacity<input name="capacity" type="number" min="1" max="500" required placeholder="30" /></label></div>
-          <div className="classes-modal-actions"><button className="classes-create" type="submit"><FiPlus /> Create Class</button><button className="classes-cancel" type="button" onClick={() => setShowForm(false)}>Cancel</button></div>
-        </form>
-      </section>
-    </div>}
-
-    {selectedClass && <div className="classes-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedClass(null) }}>
-      <section className="classes-modal class-details-modal" role="dialog" aria-modal="true" aria-labelledby="class-details-title">
-        <button className="classes-modal-close" type="button" aria-label="Close" onClick={() => setSelectedClass(null)}><FiX /></button>
-        <p className="classes-modal-kicker">{selectedClass.department} · {selectedClass.status}</p><h2 id="class-details-title">{selectedClass.title}</h2>
-        <div className="class-details-list"><p><FiUser />{selectedClass.teacher}</p><p><FiCalendar />{selectedClass.schedule}</p><p><FiUsers />{selectedClass.enrolled} of {selectedClass.capacity} students</p></div>
-        <button className="classes-create" type="button" onClick={() => setSelectedClass(null)}>Done</button>
-      </section>
-    </div>}
   </AdminLayout>
 }

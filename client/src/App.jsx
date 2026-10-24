@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/useAuth'
 import Dashboard from './pages/Dashboard'
-import { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage } from './pages/WorkspacePages'
+import { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage, TeacherListingsPage } from './pages/WorkspacePages'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -11,6 +11,7 @@ import AdminClasses from './pages/admin/AdminClasses'
 import AdminDirectory from './pages/admin/AdminDirectory'
 import AdminPayments from './pages/admin/AdminPayments'
 import AdminSettings from './pages/admin/AdminSettings'
+import { StudentAssignments, StudentClasses, StudentDashboard, StudentPayments } from './pages/StudentPortal'
 
 function App() {
   return (
@@ -19,12 +20,17 @@ function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/dashboard" element={<ProtectedRoute role="teacher"><Dashboard /></ProtectedRoute>} />
+      <Route path="/student" element={<ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>} />
+      <Route path="/student/classes" element={<ProtectedRoute role="student"><StudentClasses /></ProtectedRoute>} />
+      <Route path="/student/assignments" element={<ProtectedRoute role="student"><StudentAssignments /></ProtectedRoute>} />
+      <Route path="/student/payments" element={<ProtectedRoute role="student"><StudentPayments /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
       <Route path="/admin/classes" element={<ProtectedRoute role="admin"><AdminClasses /></ProtectedRoute>} />
       <Route path="/admin/directory" element={<ProtectedRoute role="admin"><AdminDirectory /></ProtectedRoute>} />
       <Route path="/admin/payments" element={<ProtectedRoute role="admin"><AdminPayments /></ProtectedRoute>} />
       <Route path="/admin/settings" element={<ProtectedRoute role="admin"><AdminSettings /></ProtectedRoute>} />
       <Route path="/dashboard/attendance" element={<ProtectedRoute role="teacher"><AttendancePage /></ProtectedRoute>} />
+      <Route path="/dashboard/listings" element={<ProtectedRoute role="teacher"><TeacherListingsPage /></ProtectedRoute>} />
       <Route path="/dashboard/classes" element={<ProtectedRoute role="teacher"><ClassesPage /></ProtectedRoute>} />
       <Route path="/dashboard/directory" element={<ProtectedRoute role="teacher"><DirectoryPage /></ProtectedRoute>} />
       <Route path="/dashboard/payments" element={<ProtectedRoute role="teacher"><PaymentsPage /></ProtectedRoute>} />
@@ -41,6 +47,7 @@ function ProtectedRoute({ children, role }) {
   if (user.role === role) return children
   if (user.role === 'admin') return <Navigate to="/admin" replace />
   if (user.role === 'teacher') return <Navigate to="/dashboard" replace />
+  if (user.role === 'student') return <Navigate to="/student" replace />
   return <Navigate to="/" replace />
 }
 
