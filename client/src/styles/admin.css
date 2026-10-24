@@ -1,4 +1,4 @@
-.admin-shell { --blue: #2a14b4; --blue-deep: #1b0c86; --green: #006c4a; --orange: #7d4200; --red: #ba1a1a; --ink: #0d1c2e; --muted: #464554; --soft: #777586; --bg: #f8f9ff; --tint: #eff4ff; --tint-2: #e6eeff; --tint-3: #e3dfff; --line: #dce9ff; display: flex; min-height: 100vh; background: var(--bg); color: var(--ink); font-family: 'DM Sans', sans-serif; }
+.admin-shell { --blue: var(--brand-primary); --blue-deep: var(--brand-primary-deep); --green: var(--brand-green); --orange: var(--brand-orange); --red: #ba1a1a; --ink: var(--brand-ink); --muted: var(--brand-muted); --soft: var(--brand-soft); --bg: var(--brand-bg); --tint: var(--brand-tint); --tint-2: var(--brand-tint-strong); --tint-3: var(--brand-tint-accent); --line: var(--brand-line); display: flex; min-height: 100vh; background: var(--bg); color: var(--ink); font-family: 'DM Sans', sans-serif; }
 .admin-shell *, .admin-shell *::before, .admin-shell *::after { box-sizing: border-box; }
 .admin-shell button, .admin-shell input, .admin-shell select { font: inherit; }
 

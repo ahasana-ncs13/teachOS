@@ -43,8 +43,8 @@
 .class-management-card.upcoming .class-enrollment-progress span { background: #00534f; }
 .class-archive-label { color: var(--classes-muted); font-size: 10px; }
 .class-management-foot button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 0 4px 6px; border: 0; background: transparent; color: var(--classes-blue); font-size: 10px; font-weight: 700; cursor: pointer; }
-.class-create-tile { display: flex; min-height: 190px; flex-direction: column; align-items: center; justify-content: center; padding: 22px; border: 1px dashed #a9b1bb; border-radius: 10px; background: #f1f4f6; text-align: center; cursor: pointer; transition: border .2s, background .2s; }
-.class-create-tile:hover { border-color: var(--classes-blue); background: #e9eff6; }
+.class-create-tile { display: flex; min-height: 190px; flex-direction: column; align-items: center; justify-content: center; padding: 22px; border: 1px dashed #a9b1bb; border-radius: 10px; background: var(--tint); text-align: center; cursor: pointer; transition: border .2s, background .2s; }
+.class-create-tile:hover { border-color: var(--classes-blue); background: var(--tint-2); }
 .class-create-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 12px; border-radius: 50%; background: #e0e4e8; color: var(--ink); font-size: 18px; transition: background .2s, color .2s; }
 .class-create-tile:hover .class-create-icon { background: var(--blue); color: #fff; }
 .class-create-tile strong { font: 650 15px 'Plus Jakarta Sans', sans-serif; }

@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: var(--paper, #f8faf6);
-  color: var(--sage, #6a927d);
+  background: var(--brand-bg);
+  color: var(--brand-primary);
   font-size: 14px;
 }
