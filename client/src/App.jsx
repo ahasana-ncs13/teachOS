@@ -18,26 +18,30 @@ function App() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/admin" element={<AdminDashboard />} />
-      <Route path="/admin/classes" element={<AdminClasses />} />
-      <Route path="/admin/directory" element={<AdminDirectory />} />
-      <Route path="/admin/payments" element={<AdminPayments />} />
-      <Route path="/admin/settings" element={<AdminSettings />} />
-      <Route path="/dashboard/attendance" element={<ProtectedRoute><AttendancePage /></ProtectedRoute>} />
-      <Route path="/dashboard/classes" element={<ProtectedRoute><ClassesPage /></ProtectedRoute>} />
-      <Route path="/dashboard/directory" element={<ProtectedRoute><DirectoryPage /></ProtectedRoute>} />
-      <Route path="/dashboard/payments" element={<ProtectedRoute><PaymentsPage /></ProtectedRoute>} />
-      <Route path="/dashboard/actions" element={<ProtectedRoute><QuickActionsPage /></ProtectedRoute>} />
+      <Route path="/dashboard" element={<ProtectedRoute role="teacher"><Dashboard /></ProtectedRoute>} />
+      <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
+      <Route path="/admin/classes" element={<ProtectedRoute role="admin"><AdminClasses /></ProtectedRoute>} />
+      <Route path="/admin/directory" element={<ProtectedRoute role="admin"><AdminDirectory /></ProtectedRoute>} />
+      <Route path="/admin/payments" element={<ProtectedRoute role="admin"><AdminPayments /></ProtectedRoute>} />
+      <Route path="/admin/settings" element={<ProtectedRoute role="admin"><AdminSettings /></ProtectedRoute>} />
+      <Route path="/dashboard/attendance" element={<ProtectedRoute role="teacher"><AttendancePage /></ProtectedRoute>} />
+      <Route path="/dashboard/classes" element={<ProtectedRoute role="teacher"><ClassesPage /></ProtectedRoute>} />
+      <Route path="/dashboard/directory" element={<ProtectedRoute role="teacher"><DirectoryPage /></ProtectedRoute>} />
+      <Route path="/dashboard/payments" element={<ProtectedRoute role="teacher"><PaymentsPage /></ProtectedRoute>} />
+      <Route path="/dashboard/actions" element={<ProtectedRoute role="teacher"><QuickActionsPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, role }) {
   const { user, authLoading } = useAuth()
   if (authLoading) return <div className="route-loading">Restoring your TeachOS session...</div>
-  return user ? children : <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role === role) return children
+  if (user.role === 'admin') return <Navigate to="/admin" replace />
+  if (user.role === 'teacher') return <Navigate to="/dashboard" replace />
+  return <Navigate to="/" replace />
 }
 
 export default App

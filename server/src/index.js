@@ -74,13 +74,18 @@ app.use(rateLimiter())
 app.use(cors({
   origin: (requestOrigin, callback) => {
     if (!requestOrigin || allowedOrigins.includes(requestOrigin)) return callback(null, true)
+    // Vite may select another free port (for example 5175) when its usual
+    // development ports are already occupied. Keep this allowance local-only.
+    if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(requestOrigin)) {
+      return callback(null, true)
+    }
     return callback(new Error(`Origin ${requestOrigin} is not allowed by CORS`))
   },
 }))
 app.use(express.json({ limit: '100kb' }))
 
 app.use('/api', async (request, response, next) => {
-  if (request.path === '/health' || request.path === '/courses' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings')) return next()
+  if (request.path === '/health' || request.path === '/courses' || request.path === '/users/me' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings')) return next()
   const segments = request.path.split('/').filter(Boolean)
   let requestedUid
   try {
@@ -108,6 +113,35 @@ app.use('/api', async (request, response, next) => {
       subject: requestedUid,
     })
     request.authUid = payload.sub
+    request.authEmail = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : null
+    request.authEmailVerified = payload.email_verified === true
+
+    const isProfileRegistration = request.method === 'POST' && request.path === '/users'
+    const user = await getDatabase().collection('users').findOne({ uid: payload.sub })
+    if (!user && !isProfileRegistration) {
+      return response.status(403).json({ message: 'Your account profile is not set up yet.', code: 'USER_PROFILE_REQUIRED' })
+    }
+    const canonicalRole = user?.role === 'superAdmin' ? 'admin' : user?.role
+    if (user && !['admin', 'teacher', 'student'].includes(canonicalRole)) {
+      return response.status(403).json({ message: 'Your account has an invalid role.', code: 'INVALID_ACCOUNT_ROLE' })
+    }
+    if (user?.status === 'removed') {
+      return response.status(403).json({ message: 'This user account has been deactivated.', code: 'ACCOUNT_DEACTIVATED' })
+    }
+
+    if (user) {
+      request.user = {
+        uid: user.uid,
+        email: user.email,
+        role: canonicalRole,
+        fullName: user.fullName || user.displayName || '',
+        status: user.status || 'active',
+      }
+    }
+
+    if (!isProfileRegistration && canonicalRole !== 'teacher' && canonicalRole !== 'admin') {
+      return response.status(403).json({ message: 'This workspace is available to teachers.', code: 'ROLE_FORBIDDEN' })
+    }
     return next()
   } catch (error) {
     console.error('Unable to verify Firebase ID token:', error.message)
@@ -218,25 +252,38 @@ app.post('/api/users', async (request, response) => {
     return response.status(400).json({ message: 'uid, email, and role are required' })
   }
 
-  const allowedRoles = ['admin', 'teacher', 'student']
-  if (!allowedRoles.includes(role)) return response.status(400).json({ message: 'Invalid role' })
-
   try {
     const users = getDatabase().collection('users')
+    const existingUser = await users.findOne({ uid })
+    const requestedRole = role || 'student'
+    if (!['admin', 'teacher', 'student'].includes(requestedRole)) {
+      return response.status(400).json({ message: 'Invalid role' })
+    }
+    if (!existingUser && requestedRole === 'admin') {
+      return response.status(403).json({ message: 'Admin accounts must be provisioned by TeachOS.', code: 'ADMIN_PROVISIONING_REQUIRED' })
+    }
+    const verifiedEmail = request.authEmail || (localDemo ? String(email).trim().toLowerCase() : null)
+    if (!verifiedEmail || verifiedEmail !== String(email).trim().toLowerCase()) {
+      return response.status(403).json({ message: 'The profile email must match the signed-in account.', code: 'EMAIL_MISMATCH' })
+    }
     const now = new Date()
     const profile = {
       uid,
-      email: String(email).trim().toLowerCase(),
+      email: existingUser?.email || verifiedEmail,
       displayName: displayName || fullName || '',
       fullName: fullName || displayName || '',
-      role,
+      role: existingUser?.role === 'superAdmin' ? 'admin' : existingUser?.role || requestedRole,
       photoURL: photoURL || null,
       provider: provider || 'password',
-      emailVerified: Boolean(emailVerified),
+      emailVerified: request.authEmailVerified ?? (localDemo ? true : Boolean(emailVerified)),
       metadata: metadata || {},
       updatedAt: now,
     }
-    await users.updateOne({ uid }, { $set: profile, $setOnInsert: { createdAt: now } }, { upsert: true })
+    await users.updateOne(
+      { uid },
+      { $set: profile, $setOnInsert: { createdAt: now } },
+      { upsert: true },
+    )
     const savedUser = await users.findOne({ uid }, { projection: { _id: 0 } })
     response.status(200).json({ user: savedUser })
   } catch (error) {
@@ -787,7 +834,6 @@ connectDatabase()
      database.collection('auditLogs').createIndex({ actorUid: 1, createdAt: -1 }),
      database.collection('listings').createIndex({ category: 1, createdAt: -1 }),
      database.collection('listings').createIndex({ teacherUid: 1, createdAt: -1 }),
-     database.collection('listings').createIndex({ platformId: 1, status: 1 }),
      ...['messages', 'officeHours', 'resources'].map((name) => database.collection(name).createIndex({ uid: 1, createdAt: -1 })),
    ])
    databaseReady = true

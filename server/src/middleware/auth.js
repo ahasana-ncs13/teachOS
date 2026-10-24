@@ -1,5 +1,4 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose'
-import { ObjectId } from 'mongodb'
 import { getDatabase } from '../db.js'
 
 const firebaseProjectId = process.env.FIREBASE_PROJECT_ID
@@ -9,9 +8,8 @@ const firebaseJwkSet = firebaseProjectId
 
 /**
  * Middleware: verifyToken
- * 1. Verifies Bearer token with Firebase JWKS (or demo token in non-production).
- * 2. Fetches user from MongoDB `users` collection.
- * 3. Never trusts role, platformId, or uid from client request body/headers.
+ * Verifies the Firebase identity and loads its canonical role from MongoDB.
+ * A missing Firebase profile is not granted an inferred role.
  */
 export async function verifyToken(req, res, next) {
   const authHeader = req.get('Authorization') || ''
@@ -62,24 +60,30 @@ export async function verifyToken(req, res, next) {
     const database = getDatabase()
     const userDoc = await database.collection('users').findOne({ uid })
 
-    if (!userDoc) {
-      // In demo mode or newly registered account that has not synced profile yet
-      const role = uid.toLowerCase().includes('superadmin')
-        ? 'superAdmin'
-        : uid.toLowerCase().includes('teacher')
-          ? 'teacher'
-          : uid.toLowerCase().includes('admin')
-            ? 'admin'
-            : 'student'
-
+    if (!userDoc && process.env.NODE_ENV !== 'production' && uid.startsWith('demo-')) {
       req.authUid = uid
       req.user = {
         uid,
         email: `${uid}@example.com`,
-        role,
+        role: 'teacher',
         platformId: null,
       }
       return next()
+    }
+
+    if (!userDoc) {
+      return res.status(403).json({
+        message: 'Your account profile is not set up yet. Please register or contact TeachOS support.',
+        code: 'USER_PROFILE_REQUIRED',
+      })
+    }
+
+    const role = userDoc.role === 'superAdmin' ? 'admin' : userDoc.role
+    if (!['admin', 'teacher', 'student'].includes(role)) {
+      return res.status(403).json({
+        message: 'Your account has an invalid role. Please contact TeachOS support.',
+        code: 'INVALID_ACCOUNT_ROLE',
+      })
     }
 
     req.authUid = uid
@@ -87,8 +91,8 @@ export async function verifyToken(req, res, next) {
       _id: userDoc._id,
       uid: userDoc.uid,
       email: userDoc.email,
-      role: userDoc.role || 'student',
-      platformId: userDoc.platformId ? new ObjectId(userDoc.platformId) : null,
+      role,
+      platformId: userDoc.platformId || null,
       fullName: userDoc.fullName || userDoc.displayName || '',
       status: userDoc.status || 'active',
     }
@@ -109,7 +113,7 @@ export async function verifyToken(req, res, next) {
 /**
  * Middleware: requireRole
  * Enforces role-based access control.
- * Roles: superAdmin, admin, teacher, student
+ * Roles: admin, teacher, student. Admin is the global TeachOS owner.
  */
 export function requireRole(...allowedRoles) {
   return (req, res, next) => {
@@ -120,7 +124,7 @@ export function requireRole(...allowedRoles) {
       })
     }
 
-    if (req.user.role === 'superAdmin' || allowedRoles.includes(req.user.role)) {
+    if (req.user.role === 'admin' || allowedRoles.includes(req.user.role)) {
       return next()
     }
 
@@ -133,77 +137,8 @@ export function requireRole(...allowedRoles) {
 
 /**
  * Middleware: requirePlatformActive
- * Checks tenant platform status and renewal dates.
- * - superAdmin is never blocked.
- * - Suspended or expired platforms are blocked with 403 code PLATFORM_SUSPENDED.
- * - Admin can still access /api/admin/billing to view why they are blocked.
+ * Non-blocking pass-through in the simplified 3-role model (Admin, Teacher, Student).
  */
-export async function requirePlatformActive(req, res, next) {
-  if (!req.user) {
-    return res.status(401).json({
-      message: 'Authentication required.',
-      code: 'UNAUTHENTICATED',
-    })
-  }
-
-  // superAdmin is NEVER blocked by tenant status
-  if (req.user.role === 'superAdmin') {
-    req.platform = null
-    return next()
-  }
-
-  if (!req.user.platformId) {
-    if (process.env.NODE_ENV !== 'production' && req.authUid?.startsWith('demo-')) {
-      req.platform = { _id: 'demo-platform-id', name: 'Demo Platform', status: 'active' }
-      return next()
-    }
-    return res.status(403).json({
-      message: 'Your account is not linked to any tenant platform.',
-      code: 'NO_PLATFORM_ASSOCIATED',
-    })
-  }
-
-  try {
-    const database = getDatabase()
-    const platform = await database.collection('platforms').findOne({
-      _id: req.user.platformId,
-      status: { $ne: 'removed' },
-    })
-
-    if (!platform) {
-      return res.status(404).json({
-        message: 'Platform not found or has been removed.',
-        code: 'PLATFORM_NOT_FOUND',
-      })
-    }
-
-    // Check suspension & expiration
-    const isSuspended = platform.status === 'suspended'
-    const renewalDate = platform.renewalDate ? new Date(platform.renewalDate) : null
-    const graceDays = typeof platform.gracePeriodDays === 'number' ? platform.gracePeriodDays : 7
-    const isExpired = renewalDate
-      ? Date.now() > (renewalDate.getTime() + graceDays * 86400000)
-      : false
-
-    if (isSuspended || isExpired) {
-      // Admin is permitted to access GET /api/admin/billing to review account suspension
-      const isBillingRoute = req.originalUrl.includes('/admin/billing') || req.path.includes('/billing')
-      if (req.user.role === 'admin' && req.method === 'GET' && isBillingRoute) {
-        req.platform = platform
-        return next()
-      }
-
-      return res.status(403).json({
-        message: isSuspended
-          ? 'Platform access suspended by administration.'
-          : 'Platform subscription renewal grace period has expired.',
-        code: 'PLATFORM_SUSPENDED',
-      })
-    }
-
-    req.platform = platform
-    next()
-  } catch (error) {
-    next(error)
-  }
+export async function requirePlatformActive(_req, _res, next) {
+  return next()
 }

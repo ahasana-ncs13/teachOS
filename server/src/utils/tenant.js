@@ -1,65 +1,49 @@
-import { ObjectId } from 'mongodb'
+function getOwnerField(req, requestedField) {
+  if (requestedField) return requestedField
+  if (req.user?.role === 'admin') return null
+  if (req.user?.role === 'teacher') return 'teacherUid'
+  if (req.user?.role === 'student') return 'studentUid'
 
-/**
- * Build a tenant-scoped MongoDB filter.
- * Guarantees that every query on tenant data includes { platformId: req.platform._id }
- * and excludes soft-deleted items { status: { $ne: 'removed' } }.
- */
-export function tenantQuery(req, extraFilter = {}) {
-  // superAdmin can see all platform data, or optionally scope to a specific platform
-  if (req.user?.role === 'superAdmin') {
-    const filter = { status: { $ne: 'removed' }, ...extraFilter }
-    if (req.query?.platformId) {
-      filter.platformId = typeof req.query.platformId === 'string'
-        ? new ObjectId(req.query.platformId)
-        : req.query.platformId
-    }
-    return filter
-  }
-
-  // Tenant-specific roles (admin, teacher, student) MUST have a valid platform attached
-  if (!req.platform?._id) {
-    const error = new Error('Tenant context missing: access denied')
-    error.status = 403
-    error.code = 'TENANT_CONTEXT_MISSING'
-    throw error
-  }
-
-  return {
-    platformId: req.platform._id,
-    status: { $ne: 'removed' },
-    ...extraFilter,
-  }
+  const error = new Error('A recognized user role is required to access owned records')
+  error.status = 403
+  error.code = 'OWNERSHIP_CONTEXT_REQUIRED'
+  throw error
 }
 
-/**
- * Prepares a document for tenant insertion by attaching the validated platformId and audit timestamps.
- */
-export function tenantInsert(req, document) {
-  let targetPlatformId = req.platform?._id
+/** Scope tenant records by the authenticated owner's Firebase UID. */
+export function tenantQuery(req, extraFilter = {}, requestedField) {
+  const filter = { ...extraFilter, status: { $ne: 'removed' } }
+  if (req.user?.role === 'admin') return filter
+  const ownerField = getOwnerField(req, requestedField)
+  if (ownerField) filter[ownerField] = req.user.uid
+  return filter
+}
 
-  if (req.user?.role === 'superAdmin') {
-    if (document.platformId) {
-      targetPlatformId = typeof document.platformId === 'string'
-        ? new ObjectId(document.platformId)
-        : document.platformId
-    } else if (req.query?.platformId) {
-      targetPlatformId = new ObjectId(req.query.platformId)
+/** Attach a trusted owner UID and server timestamps to an owned record. */
+export function tenantInsert(req, document, requestedField) {
+  const ownerField = getOwnerField(req, requestedField)
+  const now = new Date()
+  const record = { ...document }
+
+  if (ownerField) {
+    const ownerUid = req.user?.role === 'admin' ? record[ownerField] : req.user.uid
+    if (typeof ownerUid !== 'string' || !ownerUid) {
+      const error = new Error(`A valid ${ownerField} is required to create this record`)
+      error.status = 400
+      error.code = 'OWNER_UID_REQUIRED'
+      throw error
     }
-  }
-
-  if (!targetPlatformId) {
-    const error = new Error('Platform ID is required for tenant-owned data')
-    error.status = 400
-    error.code = 'PLATFORM_ID_REQUIRED'
+    record[ownerField] = ownerUid
+  } else if (req.user?.role !== 'admin') {
+    const error = new Error('A recognized user role is required to create this record')
+    error.status = 403
+    error.code = 'OWNERSHIP_CONTEXT_REQUIRED'
     throw error
   }
 
-  const now = new Date()
   return {
-    ...document,
-    platformId: targetPlatformId,
-    status: document.status || 'active',
+    ...record,
+    status: record.status || 'active',
     createdAt: now,
     updatedAt: now,
   }

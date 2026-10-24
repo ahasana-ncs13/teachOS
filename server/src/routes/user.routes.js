@@ -5,8 +5,13 @@ import { sanitizeInput, validatePagination, validateSchema } from '../utils/vali
 
 export const userRouter = Router()
 
-// All user management routes require token + active platform + admin or superAdmin role
-userRouter.use('/admin/users', verifyToken, requireRole('admin', 'superAdmin'), requirePlatformActive)
+userRouter.get('/users/me', verifyToken, (req, res) => {
+  const { uid, email, role, fullName, status } = req.user
+  res.json({ user: { uid, email, role, fullName, status } })
+})
+
+// User management is global and limited to the TeachOS admin.
+userRouter.use('/admin/users', verifyToken, requireRole('admin'), requirePlatformActive)
 
 userRouter.post('/admin/users', async (req, res, next) => {
   try {

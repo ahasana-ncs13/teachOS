@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { FiArrowLeft, FiBookOpen, FiEye, FiEyeOff, FiLock, FiMail, FiShield, FiUser } from 'react-icons/fi'
+import { FiArrowLeft, FiBookOpen, FiEye, FiEyeOff, FiLock, FiMail, FiUser } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import '../styles/register.css'
 
 const roles = [
-  { value: 'admin', label: 'Admin', icon: FiShield },
   { value: 'teacher', label: 'Teacher', icon: FiBookOpen },
   { value: 'student', label: 'Student', icon: FiUser },
 ]

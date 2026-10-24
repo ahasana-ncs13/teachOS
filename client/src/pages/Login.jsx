@@ -16,18 +16,27 @@ export default function Login() {
   const onSubmit = async ({ email, password, remember }) => {
     setSubmitError('')
     try {
-      await signIn(email, password, remember)
-      const target = email.toLowerCase().includes('admin') ? '/admin' : '/dashboard'
+      const signedInUser = await signIn(email, password, remember)
+      const target = signedInUser.role === 'admin' ? '/admin' : signedInUser.role === 'teacher' ? '/dashboard' : '/'
       navigate(target, { replace: true })
-    } catch {
-      setSubmitError('We could not sign you in. Check your credentials and try again.')
+    } catch (error) {
+      setSubmitError(error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password'
+        ? 'Email or password is incorrect. If you do not have a Firebase account yet, register first.'
+        : error.code === 'auth/too-many-requests'
+          ? 'Too many attempts. Wait a little before trying again.'
+          : error.code === 'ERR_NETWORK'
+            ? 'TeachOS could not reach the API. Check that the server is running and its CORS settings include this site.'
+            : error.response?.data?.message || 'We could not sign you in. Check your credentials and try again.')
     }
   }
 
   const signInSocially = async (provider) => {
     setSubmitError('')
     setSocialLoading(provider)
-    try { await signInWithProvider(provider); navigate('/dashboard', { replace: true }) } catch { setSubmitError(`${provider} sign-in is unavailable. Enable this provider in Firebase Authentication.`) } finally { setSocialLoading('') }
+    try {
+      const signedInUser = await signInWithProvider(provider)
+      navigate(signedInUser.role === 'admin' ? '/admin' : signedInUser.role === 'teacher' ? '/dashboard' : '/', { replace: true })
+    } catch { setSubmitError(`${provider} sign-in is unavailable. Enable this provider in Firebase Authentication.`) } finally { setSocialLoading('') }
   }
 
   return <main className="signin-page"><section className="signin-panel"><div className="signin-form-wrap"><Link className="signin-brand" to="/"><span className="signin-mark">T</span><strong>Teach<span>OS</span></strong></Link><div className="signin-heading"><h1>Welcome back</h1><p>Sign in to your TeachOS account to continue.</p></div>{!isConfigured && <div className="config-note">Demo mode is active. Configure Firebase in `client/.env` for real authentication.</div>}<form className="signin-form" onSubmit={handleSubmit(onSubmit)}><label>Email address<input type="email" placeholder="name@school.edu" {...register('email', { required: 'Email address is required' })} />{errors.email && <span className="signin-error">{errors.email.message}</span>}</label><label><span className="password-label">Password <a href="#forgot">Forgot password?</a></span><span className="password-input"><input type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...register('password', { required: 'Password is required' })} /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <FiEyeOff /> : <FiEye />}</button></span>{errors.password && <span className="signin-error">{errors.password.message}</span>}</label><label className="remember"><input type="checkbox" {...register('remember')} /><span>Remember me</span></label>{submitError && <span className="signin-error">{submitError}</span>}<button className="signin-submit" disabled={isSubmitting}>{isSubmitting ? 'Signing in...' : <>Sign in <FiArrowRight /></>}</button></form><div className="signin-divider"><span>Or continue with</span></div><div className="social-grid"><button onClick={() => signInSocially('Google')} disabled={Boolean(socialLoading)}><GoogleIcon />{socialLoading === 'Google' ? 'Connecting...' : 'Google'}</button></div><p className="signin-register">Don't have an account? <Link to="/register">Create an account</Link></p></div></section><section className="signin-hero"><div className="signin-hero-image" /><div className="signin-quote"><p>"Empowering the next generation of educators."</p><span>— The TeachOS Mission</span></div></section></main>

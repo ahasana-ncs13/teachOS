@@ -53,10 +53,10 @@ async function seed() {
     const users = db.collection('users')
     const seedUsers = [
       {
-        uid: 'superadmin-teachos',
-        email: 'superadmin@teachos.com',
-        fullName: 'TeachOS Super Admin',
-        role: 'superAdmin',
+        uid: 'admin-teachos',
+        email: 'teachos-admin@teachos.com',
+        fullName: 'TeachOS Admin',
+        role: 'admin',
         platformId: null,
       },
       {
@@ -174,7 +174,6 @@ async function seed() {
             teacherUid: 'teacher-rahman',
             email: 'teacher@teachos.com',
             teacherName: 'Dr. K. Rahman',
-            platformId,
             status: 'active',
             updatedAt: now,
           },
@@ -189,8 +188,8 @@ async function seed() {
 
     console.log('\n✅ Database seeding successfully completed!')
     console.log('\n--- DEMO CREDENTIALS ---')
-    console.log('Super Admin:  superadmin@teachos.com (Password: Super@123)')
-    console.log('Platform Admin: admin@teachos.com     (Password: Admin@123)')
+    console.log('TeachOS Admin: teachos-admin@teachos.com (Password: Admin@123)')
+    console.log('Platform Admin: admin@teachos.com        (Password: Admin@123)')
     console.log('Teacher:       teacher@teachos.com    (Password: Teach@123)')
     console.log('Student:       student@teachos.com    (Password: Study@123)')
     console.log('------------------------\n')

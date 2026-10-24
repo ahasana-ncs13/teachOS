@@ -30,46 +30,59 @@ setAuthTokenProvider(async () => {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(Boolean(auth))
-  useEffect(() => auth ? onAuthStateChanged(auth, (nextUser) => {
-    setUser(nextUser || null)
-    setAuthLoading(false)
+  useEffect(() => auth ? onAuthStateChanged(auth, async (nextUser) => {
+    if (!nextUser) {
+      setUser(null)
+      setAuthLoading(false)
+      return
+    }
+    try {
+      setUser(await loadUserProfile(nextUser))
+    } catch {
+      setUser(null)
+    } finally {
+      setAuthLoading(false)
+    }
   }) : undefined, [])
   const signIn = async (email, password, remember = true) => {
-    currentDemoToken = `demo-${email}`
     if (!auth) {
-      const demoUser = { email, uid: `demo-${email}`, emailVerified: true }
+      currentDemoToken = `demo-${email}`
+      const demoUser = { email, uid: `demo-${email}`, emailVerified: true, role: 'teacher' }
       setUser(demoUser)
       return demoUser
     }
-    try {
-      await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence)
-      const credential = await signInWithEmailAndPassword(auth, email, password)
-      setUser(credential.user)
-      return credential.user
-    } catch (err) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.code === 'auth/invalid-email' || err.code === 'auth/wrong-password') {
-        const demoUser = { email, uid: `demo-${email}`, emailVerified: true }
-        setUser(demoUser)
-        return demoUser
-      }
-      throw err
-    }
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence)
+    const credential = await signInWithEmailAndPassword(auth, email, password)
+    const signedInUser = await loadUserProfile(credential.user)
+    setUser(signedInUser)
+    return signedInUser
   }
   const signInWithProvider = async () => {
-    if (!auth) return setUser({ email: 'google@demo.teachos', emailVerified: true })
+    if (!auth) {
+      currentDemoToken = 'demo-google@demo.teachos'
+      const demoUser = { email: 'google@demo.teachos', emailVerified: true, role: 'student' }
+      setUser(demoUser)
+      return demoUser
+    }
     const credential = await signInWithPopup(auth, new GoogleAuthProvider())
-    setUser(credential.user)
-    await saveUser(credential.user, { role: 'student', provider: 'google' })
-    return credential.user
+    const profile = await saveUser(credential.user, { role: 'student', provider: 'google' })
+    const signedInUser = { ...credential.user, ...profile }
+    setUser(signedInUser)
+    return signedInUser
   }
   const signUp = async (email, password, profile = {}) => {
-    currentDemoToken = `demo-${email}`
-    if (!auth) return setUser({ email, emailVerified: true, displayName: profile.fullName, role: profile.role })
+    if (!auth) {
+      currentDemoToken = `demo-${email}`
+      const demoUser = { email, emailVerified: true, displayName: profile.fullName, role: profile.role || 'teacher' }
+      setUser(demoUser)
+      return demoUser
+    }
     const credential = await createUserWithEmailAndPassword(auth, email, password)
     await updateProfile(credential.user, { displayName: profile.fullName })
-    await saveUser(credential.user, profile)
-    setUser(credential.user)
-    return credential.user
+    const savedProfile = await saveUser(credential.user, profile)
+    const signedInUser = { ...credential.user, ...savedProfile }
+    setUser(signedInUser)
+    return signedInUser
   }
   const signOut = () => {
     currentDemoToken = null
@@ -79,7 +92,7 @@ export function AuthProvider({ children }) {
 }
 
 async function saveUser(firebaseUser, profile = {}) {
-  await api.post('/users', {
+  const { data } = await api.post('/users', {
     uid: firebaseUser.uid,
     email: firebaseUser.email,
     displayName: firebaseUser.displayName,
@@ -93,4 +106,10 @@ async function saveUser(firebaseUser, profile = {}) {
       lastLoginAt: firebaseUser.metadata?.lastSignInTime,
     },
   })
+  return data.user
+}
+
+async function loadUserProfile(firebaseUser) {
+  const { data } = await api.get('/users/me')
+  return { ...firebaseUser, ...data.user }
 }

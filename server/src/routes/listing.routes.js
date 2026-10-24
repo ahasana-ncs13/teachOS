@@ -40,7 +40,7 @@ listingRouter.get('/listings', async (req, res, next) => {
  * Private: GET /api/listings/my
  * Must come before /listings/:id so "my" is not captured as an id param.
  */
-listingRouter.get('/listings/my', verifyToken, requireRole('teacher', 'admin', 'superAdmin'), async (req, res, next) => {
+listingRouter.get('/listings/my', verifyToken, requireRole('teacher', 'admin'), async (req, res, next) => {
   try {
     const pagination = validatePagination(req.query)
     const result = await listingService.getMyListings(req, pagination)
@@ -65,7 +65,7 @@ listingRouter.get('/listings/:id', async (req, res, next) => {
  * - PUT /api/listings/:id
  * - DELETE /api/listings/:id
  */
-listingRouter.post('/listings', verifyToken, requireRole('teacher', 'admin', 'superAdmin'), requirePlatformActive, async (req, res, next) => {
+listingRouter.post('/listings', verifyToken, requireRole('teacher'), async (req, res, next) => {
   try {
     const body = sanitizeInput(req.body, [
       'name',
@@ -76,7 +76,6 @@ listingRouter.post('/listings', verifyToken, requireRole('teacher', 'admin', 'su
       'description',
       'image',
       'startDate',
-      'platformId',
     ])
 
     validateSchema(body, {
@@ -101,7 +100,7 @@ listingRouter.post('/listings', verifyToken, requireRole('teacher', 'admin', 'su
   }
 })
 
-listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin', 'superAdmin'), requirePlatformActive, async (req, res, next) => {
+listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'), requirePlatformActive, async (req, res, next) => {
   try {
     const body = sanitizeInput(req.body, [
       'name',
@@ -136,7 +135,7 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin', 
   }
 })
 
-listingRouter.delete('/listings/:id', verifyToken, requireRole('teacher', 'admin', 'superAdmin'), requirePlatformActive, async (req, res, next) => {
+listingRouter.delete('/listings/:id', verifyToken, requireRole('teacher', 'admin'), requirePlatformActive, async (req, res, next) => {
   try {
     const result = await listingService.softDeleteListing(req, req.params.id)
     res.json(result)

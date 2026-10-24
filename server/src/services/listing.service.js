@@ -1,9 +1,7 @@
-import { ObjectId } from 'mongodb'
 import { getDatabase } from '../db.js'
 import { parseObjectId } from '../utils/validation.js'
+import { tenantQuery, tenantInsert } from '../utils/tenant.js'
 import { writeAuditLog } from './audit.service.js'
-
-const ALLOWED_CATEGORIES = ['Online Course', 'Offline Batch', 'Exam Preparation', 'Skill Course']
 
 /**
  * Service to manage course and batch listings.
@@ -12,14 +10,8 @@ export async function createListing(req, data) {
   const database = getDatabase()
   const listings = database.collection('listings')
 
-  // Determine platformId
-  let platformId = req.platform?._id
-  if (req.user.role === 'superAdmin' && data.platformId) {
-    platformId = new ObjectId(data.platformId)
-  }
-
   const now = new Date()
-  const newListing = {
+  const newListing = tenantInsert(req, {
     name: data.name.trim(),
     category: data.category,
     fee: Number(data.fee) || 0,
@@ -28,21 +20,17 @@ export async function createListing(req, data) {
     description: data.description.trim(),
     image: data.image?.trim() || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=900&q=85',
     startDate: data.startDate ? new Date(data.startDate) : now,
-    // Strict identity attributes pulled from verified token/user record
-    teacherUid: req.user.uid,
     email: req.user.email,
     teacherName: req.user.fullName || req.user.displayName || req.user.email,
-    platformId: platformId || null,
     status: 'active',
     createdAt: now,
     updatedAt: now,
-  }
+  }, 'teacherUid')
 
   const result = await listings.insertOne(newListing)
   const listingId = result.insertedId
 
   await writeAuditLog({
-    platformId,
     actorUid: req.authUid,
     actorRole: req.user.role,
     action: 'CREATE_LISTING',
@@ -57,13 +45,6 @@ export async function createListing(req, data) {
 export async function getListings(req, { search, category, page = 1, limit = 20 }) {
   const database = getDatabase()
   const filter = { status: { $ne: 'removed' } }
-
-  // If user is inside an authenticated tenant platform context, scope to platform
-  if (req.platform?._id) {
-    filter.platformId = req.platform._id
-  } else if (req.query?.platformId) {
-    filter.platformId = new ObjectId(req.query.platformId)
-  }
 
   if (category && typeof category === 'string' && category !== 'All') {
     // Case-insensitive match for category
@@ -85,7 +66,7 @@ export async function getListings(req, { search, category, page = 1, limit = 20 
 
   const [items, total] = await Promise.all([
     collection
-      .find(filter, { projection: { removedAt: 0, removedBy: 0 } })
+      .find(filter, { projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -108,15 +89,11 @@ export async function getLatestListings(req, count = 6) {
   const database = getDatabase()
   const filter = { status: { $ne: 'removed' } }
 
-  if (req.platform?._id) {
-    filter.platformId = req.platform._id
-  }
-
   const limit = Math.min(Math.max(Number(count) || 6, 1), 20)
 
   const items = await database
     .collection('listings')
-    .find(filter, { projection: { removedAt: 0, removedBy: 0 } })
+    .find(filter, { projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } })
     .sort({ createdAt: -1 })
     .limit(limit)
     .toArray()
@@ -129,7 +106,7 @@ export async function getListingById(id) {
   const database = getDatabase()
   const listing = await database.collection('listings').findOne(
     { _id: objectId, status: { $ne: 'removed' } },
-    { projection: { removedAt: 0, removedBy: 0 } }
+    { projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } }
   )
 
   if (!listing) {
@@ -144,20 +121,14 @@ export async function getListingById(id) {
 
 export async function getMyListings(req, { page = 1, limit = 20 }) {
   const database = getDatabase()
-  const filter = {
-    status: { $ne: 'removed' },
-    $or: [
-      { teacherUid: req.user.uid },
-      { email: req.user.email },
-    ],
-  }
+  const filter = tenantQuery(req, {}, 'teacherUid')
 
   const skip = (page - 1) * limit
   const collection = database.collection('listings')
 
   const [items, total] = await Promise.all([
     collection
-      .find(filter, { projection: { removedAt: 0, removedBy: 0 } })
+      .find(filter, { projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -179,7 +150,10 @@ export async function getMyListings(req, { page = 1, limit = 20 }) {
 export async function updateListing(req, id, updateData) {
   const objectId = parseObjectId(id, 'listingId')
   const database = getDatabase()
-  const existing = await database.collection('listings').findOne({ _id: objectId, status: { $ne: 'removed' } })
+  const ownershipFilter = req.user.role === 'admin'
+    ? { _id: objectId, status: { $ne: 'removed' } }
+    : tenantQuery(req, { _id: objectId }, 'teacherUid')
+  const existing = await database.collection('listings').findOne(ownershipFilter)
 
   if (!existing) {
     const error = new Error('Listing not found')
@@ -188,19 +162,7 @@ export async function updateListing(req, id, updateData) {
     throw error
   }
 
-  // Ownership verification:
-  // Teacher can only update their own listings; Admin can update listings on their platform; superAdmin can update any
-  const isOwner = existing.teacherUid === req.user.uid || existing.email === req.user.email
-  const isAdminForPlatform = req.user.role === 'admin' && String(existing.platformId) === String(req.platform?._id)
-  const isSuperAdmin = req.user.role === 'superAdmin'
-
-  if (!isOwner && !isAdminForPlatform && !isSuperAdmin) {
-    const error = new Error('You do not have permission to modify this listing')
-    error.status = 403
-    error.code = 'FORBIDDEN_OWNERSHIP'
-    throw error
-  }
-
+  // Teachers can update their own listings; the global TeachOS admin can update any listing.
   const updates = {}
   if (updateData.name !== undefined) updates.name = updateData.name.trim()
   if (updateData.category !== undefined) updates.category = updateData.category
@@ -215,11 +177,10 @@ export async function updateListing(req, id, updateData) {
   const result = await database.collection('listings').findOneAndUpdate(
     { _id: objectId },
     { $set: updates },
-    { returnDocument: 'after', projection: { removedAt: 0, removedBy: 0 } }
+    { returnDocument: 'after', projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } }
   )
 
   await writeAuditLog({
-    platformId: existing.platformId,
     actorUid: req.authUid,
     actorRole: req.user.role,
     action: 'UPDATE_LISTING',
@@ -234,23 +195,15 @@ export async function updateListing(req, id, updateData) {
 export async function softDeleteListing(req, id) {
   const objectId = parseObjectId(id, 'listingId')
   const database = getDatabase()
-  const existing = await database.collection('listings').findOne({ _id: objectId, status: { $ne: 'removed' } })
+  const ownershipFilter = req.user.role === 'admin'
+    ? { _id: objectId, status: { $ne: 'removed' } }
+    : tenantQuery(req, { _id: objectId }, 'teacherUid')
+  const existing = await database.collection('listings').findOne(ownershipFilter)
 
   if (!existing) {
     const error = new Error('Listing not found')
     error.status = 404
     error.code = 'LISTING_NOT_FOUND'
-    throw error
-  }
-
-  const isOwner = existing.teacherUid === req.user.uid || existing.email === req.user.email
-  const isAdminForPlatform = req.user.role === 'admin' && String(existing.platformId) === String(req.platform?._id)
-  const isSuperAdmin = req.user.role === 'superAdmin'
-
-  if (!isOwner && !isAdminForPlatform && !isSuperAdmin) {
-    const error = new Error('You do not have permission to delete this listing')
-    error.status = 403
-    error.code = 'FORBIDDEN_OWNERSHIP'
     throw error
   }
 
@@ -261,7 +214,6 @@ export async function softDeleteListing(req, id) {
   )
 
   await writeAuditLog({
-    platformId: existing.platformId,
     actorUid: req.authUid,
     actorRole: req.user.role,
     action: 'SOFT_DELETE_LISTING',

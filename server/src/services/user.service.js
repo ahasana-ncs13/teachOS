@@ -10,9 +10,9 @@ export async function createTenantUser(req, { email, role, fullName, platformId 
   const database = getDatabase()
   const users = database.collection('users')
 
-  // Rule 5: Only superAdmin can create or assign admins
-  if (role === 'admin' && req.user.role !== 'superAdmin') {
-    const error = new Error('Only superAdmin can create or assign admin accounts')
+  // Only the global TeachOS admin can create or assign admin accounts.
+  if (role === 'admin' && req.user.role !== 'admin') {
+    const error = new Error('Only the TeachOS admin can create or assign admin accounts')
     error.status = 403
     error.code = 'ADMIN_CREATION_FORBIDDEN'
     throw error
@@ -20,12 +20,12 @@ export async function createTenantUser(req, { email, role, fullName, platformId 
 
   // Determine target platform
   let targetPlatformId = req.platform?._id
-  if (req.user.role === 'superAdmin') {
+  if (req.user.role === 'admin') {
     targetPlatformId = platformId ? new ObjectId(platformId) : null
   }
 
   // Tenant users must have platformId
-  if (role !== 'superAdmin' && !targetPlatformId) {
+  if (role !== 'admin' && !targetPlatformId) {
     const error = new Error('Platform ID is required for tenant users')
     error.status = 400
     error.code = 'PLATFORM_REQUIRED'
@@ -73,7 +73,7 @@ export async function listTenantUsers(req, { page = 1, limit = 20, role, search 
   const database = getDatabase()
   const filter = { status: { $ne: 'removed' } }
 
-  if (req.user.role !== 'superAdmin') {
+  if (req.user.role !== 'admin') {
     filter.platformId = req.platform._id
   } else if (req.query.platformId) {
     filter.platformId = new ObjectId(req.query.platformId)
@@ -127,7 +127,7 @@ export async function softDeleteTenantUser(req, userId) {
     throw error
   }
 
-  // Rule 5: Admin cannot modify admins or themselves. Only superAdmin can remove admins.
+  // Admin cannot remove their own account or another admin account.
   if (req.user.role === 'admin') {
     if (String(targetUser._id) === String(req.user._id) || targetUser.uid === req.user.uid) {
       const error = new Error('Admins cannot delete their own account')
@@ -136,16 +136,9 @@ export async function softDeleteTenantUser(req, userId) {
       throw error
     }
     if (targetUser.role === 'admin' || targetUser.role === 'superAdmin') {
-      const error = new Error('Admins cannot remove other administrators. Only superAdmin can perform this.')
+      const error = new Error('The TeachOS admin cannot remove another admin account.')
       error.status = 403
       error.code = 'ADMIN_DELETION_FORBIDDEN'
-      throw error
-    }
-    // Verify tenant boundary
-    if (String(targetUser.platformId) !== String(req.platform._id)) {
-      const error = new Error('User belongs to another tenant platform')
-      error.status = 403
-      error.code = 'TENANT_BOUNDARY_VIOLATION'
       throw error
     }
   }

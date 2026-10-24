@@ -39,7 +39,7 @@ export async function createPlatform({ name, slug, plan = 'standard', renewalDat
   await writeAuditLog({
     platformId,
     actorUid,
-    actorRole: 'superAdmin',
+    actorRole: 'admin',
     action: 'CREATE_PLATFORM',
     targetType: 'platform',
     targetId: platformId,
@@ -124,7 +124,7 @@ export async function suspendPlatform(id, { reason = '', actorUid }) {
   await writeAuditLog({
     platformId: objectId,
     actorUid,
-    actorRole: 'superAdmin',
+    actorRole: 'admin',
     action: 'SUSPEND_PLATFORM',
     targetType: 'platform',
     targetId: objectId,
@@ -155,7 +155,7 @@ export async function reactivatePlatform(id, { actorUid }) {
   await writeAuditLog({
     platformId: objectId,
     actorUid,
-    actorRole: 'superAdmin',
+    actorRole: 'admin',
     action: 'REACTIVATE_PLATFORM',
     targetType: 'platform',
     targetId: objectId,
@@ -183,7 +183,7 @@ export async function extendPlatformRenewal(id, { days = 30, actorUid }) {
   await writeAuditLog({
     platformId: objectId,
     actorUid,
-    actorRole: 'superAdmin',
+    actorRole: 'admin',
     action: 'EXTEND_PLATFORM_RENEWAL',
     targetType: 'platform',
     targetId: objectId,
@@ -214,7 +214,7 @@ export async function softDeletePlatform(id, { actorUid }) {
   await writeAuditLog({
     platformId: objectId,
     actorUid,
-    actorRole: 'superAdmin',
+    actorRole: 'admin',
     action: 'SOFT_DELETE_PLATFORM',
     targetType: 'platform',
     targetId: objectId,

@@ -10,9 +10,9 @@ platformRouter.use(['/platforms', '/admin/billing'], verifyToken)
 
 /**
  * GET /api/admin/billing
- * Accessible by tenant admin (and superAdmin) even when platform is suspended or expired.
+ * Global TeachOS admin can inspect platform billing records.
  */
-platformRouter.get('/admin/billing', requireRole('admin', 'superAdmin'), requirePlatformActive, async (req, res, next) => {
+platformRouter.get('/admin/billing', requireRole('admin'), requirePlatformActive, async (req, res, next) => {
   try {
     const targetPlatformId = req.platform?._id || req.query.platformId
     if (!targetPlatformId) {
@@ -28,7 +28,7 @@ platformRouter.get('/admin/billing', requireRole('admin', 'superAdmin'), require
 /**
  * SuperAdmin platform management routes
  */
-platformRouter.post('/platforms', requireRole('superAdmin'), async (req, res, next) => {
+platformRouter.post('/platforms', requireRole('admin'), async (req, res, next) => {
   try {
     const body = sanitizeInput(req.body, ['name', 'slug', 'plan', 'renewalDate', 'gracePeriodDays'])
     validateSchema(body, {
@@ -48,7 +48,7 @@ platformRouter.post('/platforms', requireRole('superAdmin'), async (req, res, ne
   }
 })
 
-platformRouter.get('/platforms', requireRole('superAdmin'), async (req, res, next) => {
+platformRouter.get('/platforms', requireRole('admin'), async (req, res, next) => {
   try {
     const pagination = validatePagination(req.query)
     const { status, search } = req.query
@@ -63,7 +63,7 @@ platformRouter.get('/platforms', requireRole('superAdmin'), async (req, res, nex
   }
 })
 
-platformRouter.get('/platforms/:id', requireRole('superAdmin'), async (req, res, next) => {
+platformRouter.get('/platforms/:id', requireRole('admin'), async (req, res, next) => {
   try {
     const platform = await platformService.getPlatformById(req.params.id)
     res.json({ platform })
@@ -72,7 +72,7 @@ platformRouter.get('/platforms/:id', requireRole('superAdmin'), async (req, res,
   }
 })
 
-platformRouter.patch('/platforms/:id/suspend', requireRole('superAdmin'), async (req, res, next) => {
+platformRouter.patch('/platforms/:id/suspend', requireRole('admin'), async (req, res, next) => {
   try {
     const body = sanitizeInput(req.body, ['reason'])
     validateSchema(body, {
@@ -88,7 +88,7 @@ platformRouter.patch('/platforms/:id/suspend', requireRole('superAdmin'), async 
   }
 })
 
-platformRouter.patch('/platforms/:id/reactivate', requireRole('superAdmin'), async (req, res, next) => {
+platformRouter.patch('/platforms/:id/reactivate', requireRole('admin'), async (req, res, next) => {
   try {
     const platform = await platformService.reactivatePlatform(req.params.id, {
       actorUid: req.authUid,
@@ -99,7 +99,7 @@ platformRouter.patch('/platforms/:id/reactivate', requireRole('superAdmin'), asy
   }
 })
 
-platformRouter.patch('/platforms/:id/extend', requireRole('superAdmin'), async (req, res, next) => {
+platformRouter.patch('/platforms/:id/extend', requireRole('admin'), async (req, res, next) => {
   try {
     const body = sanitizeInput(req.body, ['days'])
     validateSchema(body, {
@@ -115,7 +115,7 @@ platformRouter.patch('/platforms/:id/extend', requireRole('superAdmin'), async (
   }
 })
 
-platformRouter.delete('/platforms/:id', requireRole('superAdmin'), async (req, res, next) => {
+platformRouter.delete('/platforms/:id', requireRole('admin'), async (req, res, next) => {
   try {
     const result = await platformService.softDeletePlatform(req.params.id, {
       actorUid: req.authUid,
