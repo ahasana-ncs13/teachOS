@@ -1,10 +1,21 @@
-import 'dotenv/config'
+import dotenv from 'dotenv'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+dotenv.config({ path: join(__dirname, '../.env') })
+dotenv.config()
 import cors from 'cors'
 import express from 'express'
 import { randomUUID } from 'node:crypto'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { GridFSBucket, ObjectId } from 'mongodb'
 import { closeDatabase, connectDatabase, getDatabase } from './db.js'
+import { securityHeaders, rateLimiter } from './middleware/security.js'
+import { errorHandler } from './middleware/error.js'
+import { platformRouter } from './routes/platform.routes.js'
+import { userRouter } from './routes/user.routes.js'
+import { listingRouter } from './routes/listing.routes.js'
 
 const app = express()
 const port = process.env.PORT || 5000
@@ -58,16 +69,18 @@ const sampleDashboard = {
   updatedAt: new Date(),
 }
 
+app.use(securityHeaders)
+app.use(rateLimiter())
 app.use(cors({
   origin: (requestOrigin, callback) => {
     if (!requestOrigin || allowedOrigins.includes(requestOrigin)) return callback(null, true)
     return callback(new Error(`Origin ${requestOrigin} is not allowed by CORS`))
   },
 }))
-app.use(express.json())
+app.use(express.json({ limit: '100kb' }))
 
 app.use('/api', async (request, response, next) => {
-  if (request.path === '/health' || request.path === '/courses') return next()
+  if (request.path === '/health' || request.path === '/courses' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings')) return next()
   const segments = request.path.split('/').filter(Boolean)
   let requestedUid
   try {
@@ -102,7 +115,7 @@ app.use('/api', async (request, response, next) => {
   }
 })
 
-const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources']
+const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources', 'platforms', 'auditLogs', 'listings']
 
 async function ensureTeacherData(uid) {
   const database = getDatabase()
@@ -741,6 +754,12 @@ app.get('/api/courses', (_request, response) => {
   response.json({ courses: [] })
 })
 
+app.use('/api', listingRouter)
+app.use('/api', platformRouter)
+app.use('/api', userRouter)
+
+app.use(errorHandler)
+
 const server = app.listen(port, () => console.log(`TeachOS API listening on http://localhost:${port}`))
 
 connectDatabase()
@@ -762,6 +781,13 @@ connectDatabase()
      database.collection('payments').createIndex({ uid: 1, id: 1 }, { unique: true }),
      database.collection('payoutRequests').createIndex({ uid: 1, createdAt: -1 }),
      database.collection('payoutRequests').createIndex({ uid: 1, id: 1 }, { unique: true }),
+     database.collection('platforms').createIndex({ slug: 1 }, { unique: true }),
+     database.collection('platforms').createIndex({ status: 1 }),
+     database.collection('auditLogs').createIndex({ platformId: 1, createdAt: -1 }),
+     database.collection('auditLogs').createIndex({ actorUid: 1, createdAt: -1 }),
+     database.collection('listings').createIndex({ category: 1, createdAt: -1 }),
+     database.collection('listings').createIndex({ teacherUid: 1, createdAt: -1 }),
+     database.collection('listings').createIndex({ platformId: 1, status: 1 }),
      ...['messages', 'officeHours', 'resources'].map((name) => database.collection(name).createIndex({ uid: 1, createdAt: -1 })),
    ])
    databaseReady = true

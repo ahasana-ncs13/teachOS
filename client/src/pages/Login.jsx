@@ -15,7 +15,13 @@ export default function Login() {
 
   const onSubmit = async ({ email, password, remember }) => {
     setSubmitError('')
-    try { await signIn(email, password, remember); navigate('/dashboard', { replace: true }) } catch { setSubmitError('We could not sign you in. Check your credentials and try again.') }
+    try {
+      await signIn(email, password, remember)
+      const target = email.toLowerCase().includes('admin') ? '/admin' : '/dashboard'
+      navigate(target, { replace: true })
+    } catch {
+      setSubmitError('We could not sign you in. Check your credentials and try again.')
+    }
   }
 
   const signInSocially = async (provider) => {

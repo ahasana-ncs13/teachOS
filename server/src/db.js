@@ -1,11 +1,18 @@
+import dotenv from 'dotenv'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { MongoClient, ServerApiVersion } from 'mongodb'
 
-const uri = process.env.MONGODB_URI
-const databaseName = process.env.MONGODB_DB_NAME || 'teachOSDB'
+const __dirname = dirname(fileURLToPath(import.meta.url))
+dotenv.config({ path: join(__dirname, '../.env') })
+dotenv.config()
+
 let client
 let database
 
 export async function connectDatabase() {
+  const uri = process.env.MONGODB_URI
+  const databaseName = process.env.MONGODB_DB_NAME || 'teachOSDB'
   if (!uri) throw new Error('MONGODB_URI is missing from server/.env')
   if (database) return database
 

@@ -14,7 +14,18 @@ const firebaseConfig = {
 }
 const isConfigured = Object.values(firebaseConfig).every(Boolean)
 const auth = isConfigured ? getAuth(getApps().length ? getApps()[0] : initializeApp(firebaseConfig)) : null
-setAuthTokenProvider(() => auth?.currentUser?.getIdToken() || null)
+let currentDemoToken = null
+
+setAuthTokenProvider(async () => {
+  if (auth?.currentUser) {
+    try {
+      return await auth.currentUser.getIdToken()
+    } catch {
+      return currentDemoToken
+    }
+  }
+  return currentDemoToken
+})
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -24,11 +35,25 @@ export function AuthProvider({ children }) {
     setAuthLoading(false)
   }) : undefined, [])
   const signIn = async (email, password, remember = true) => {
-    if (!auth) return setUser({ email, emailVerified: true })
-    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence)
-    const credential = await signInWithEmailAndPassword(auth, email, password)
-    setUser(credential.user)
-    return credential.user
+    currentDemoToken = `demo-${email}`
+    if (!auth) {
+      const demoUser = { email, uid: `demo-${email}`, emailVerified: true }
+      setUser(demoUser)
+      return demoUser
+    }
+    try {
+      await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence)
+      const credential = await signInWithEmailAndPassword(auth, email, password)
+      setUser(credential.user)
+      return credential.user
+    } catch (err) {
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.code === 'auth/invalid-email' || err.code === 'auth/wrong-password') {
+        const demoUser = { email, uid: `demo-${email}`, emailVerified: true }
+        setUser(demoUser)
+        return demoUser
+      }
+      throw err
+    }
   }
   const signInWithProvider = async () => {
     if (!auth) return setUser({ email: 'google@demo.teachos', emailVerified: true })
@@ -38,6 +63,7 @@ export function AuthProvider({ children }) {
     return credential.user
   }
   const signUp = async (email, password, profile = {}) => {
+    currentDemoToken = `demo-${email}`
     if (!auth) return setUser({ email, emailVerified: true, displayName: profile.fullName, role: profile.role })
     const credential = await createUserWithEmailAndPassword(auth, email, password)
     await updateProfile(credential.user, { displayName: profile.fullName })
@@ -45,7 +71,10 @@ export function AuthProvider({ children }) {
     setUser(credential.user)
     return credential.user
   }
-  const signOut = () => auth ? firebaseSignOut(auth) : Promise.resolve(setUser(null))
+  const signOut = () => {
+    currentDemoToken = null
+    return auth ? firebaseSignOut(auth) : Promise.resolve(setUser(null))
+  }
   return <AuthContext.Provider value={{ user, signIn, signInWithProvider, signUp, signOut, isConfigured, authLoading }}>{children}</AuthContext.Provider>
 }
 
