@@ -21,7 +21,7 @@ export default function Register() {
     setSubmitError('')
     try {
       await signUp(email, password, { fullName, role })
-      navigate('/dashboard', { replace: true })
+      navigate(role === 'teacher' ? '/dashboard' : '/student', { replace: true })
     } catch (error) {
       setSubmitError(error.code === 'auth/email-already-in-use' ? 'An account already exists for this email.' : error.code === 'auth/weak-password' ? 'Use a stronger password with at least 8 characters.' : error.code === 'ERR_NETWORK' ? 'The TeachOS server is not running. Start it with npm run dev, then try again.' : error.response?.data?.message || 'We could not create your account. Check your details and try again.')
     }

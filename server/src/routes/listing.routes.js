@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { getDatabase } from '../db.js'
 import { requirePlatformActive, requireRole, verifyToken } from '../middleware/auth.js'
 import * as listingService from '../services/listing.service.js'
 import { sanitizeInput, validatePagination, validateSchema } from '../utils/validation.js'
@@ -45,6 +46,85 @@ listingRouter.get('/listings/my', verifyToken, requireRole('teacher', 'admin'), 
     const pagination = validatePagination(req.query)
     const result = await listingService.getMyListings(req, pagination)
     res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+listingRouter.get('/listings/:id/assignments', verifyToken, requireRole('teacher'), async (req, res, next) => {
+  try {
+    const listingId = parseObjectId(req.params.id, 'listingId')
+    const database = getDatabase()
+    const listing = await database.collection('listings').findOne({
+      _id: listingId,
+      teacherUid: req.authUid,
+      status: { $ne: 'removed' },
+    })
+    if (!listing) return res.status(404).json({ message: 'Listing not found.', code: 'LISTING_NOT_FOUND' })
+
+    const assignments = await database.collection('assignments').find({ listingId }).sort({ createdAt: -1 }).toArray()
+    const assignmentIds = assignments.map((assignment) => assignment._id)
+    const submissions = assignmentIds.length
+      ? await database.collection('assignmentSubmissions').find({ assignmentId: { $in: assignmentIds } }).sort({ submittedAt: -1 }).toArray()
+      : []
+    const submissionsByAssignment = new Map()
+    for (const submission of submissions) {
+      const key = String(submission.assignmentId)
+      const records = submissionsByAssignment.get(key) || []
+      records.push(submission)
+      submissionsByAssignment.set(key, records)
+    }
+    res.json({
+      assignments: assignments.map((assignment) => ({
+        ...assignment,
+        submissions: submissionsByAssignment.get(String(assignment._id)) || [],
+      })),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+listingRouter.post('/listings/:id/assignments', verifyToken, requireRole('teacher'), async (req, res, next) => {
+  try {
+    const listingId = parseObjectId(req.params.id, 'listingId')
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
+    const description = typeof req.body?.description === 'string' ? req.body.description.trim() : ''
+    const dueDateValue = req.body?.dueDate
+    const validDueDate = !dueDateValue || (
+      typeof dueDateValue === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(dueDateValue) &&
+      !Number.isNaN(Date.parse(`${dueDateValue}T00:00:00Z`)) &&
+      new Date(`${dueDateValue}T00:00:00Z`).toISOString().slice(0, 10) === dueDateValue
+    )
+    if (title.length < 3 || title.length > 150 || description.length > 5000 ||
+        !validDueDate) {
+      return res.status(400).json({ message: 'Provide a title, description (up to 5,000 characters), and valid due date.' })
+    }
+
+    const database = getDatabase()
+    const listing = await database.collection('listings').findOne({
+      _id: listingId,
+      teacherUid: req.authUid,
+      status: { $ne: 'removed' },
+    })
+    if (!listing) return res.status(404).json({ message: 'Listing not found.', code: 'LISTING_NOT_FOUND' })
+
+    const now = new Date()
+    const assignment = {
+      listingId,
+      teacherUid: req.authUid,
+      teacherName: req.user.fullName || req.user.email,
+      listingName: listing.name,
+      title,
+      description,
+      dueDate: dueDateValue || null,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    }
+    const result = await database.collection('assignments').insertOne(assignment)
+    res.status(201).json({ assignment: { _id: result.insertedId, ...assignment } })
   } catch (error) {
     next(error)
   }

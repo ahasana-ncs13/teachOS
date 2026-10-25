@@ -16,6 +16,7 @@ import { errorHandler } from './middleware/error.js'
 import { platformRouter } from './routes/platform.routes.js'
 import { userRouter } from './routes/user.routes.js'
 import { listingRouter } from './routes/listing.routes.js'
+import { studentRouter } from './routes/student.routes.js'
 
 const app = express()
 const port = process.env.PORT || 5000
@@ -85,7 +86,7 @@ app.use(cors({
 app.use(express.json({ limit: '100kb' }))
 
 app.use('/api', async (request, response, next) => {
-  if (request.path === '/health' || request.path === '/courses' || request.path === '/users/me' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings')) return next()
+  if (request.path === '/health' || request.path === '/courses' || request.path === '/users/me' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings') || request.path.startsWith('/student')) return next()
   const segments = request.path.split('/').filter(Boolean)
   let requestedUid
   try {
@@ -149,7 +150,7 @@ app.use('/api', async (request, response, next) => {
   }
 })
 
-const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources', 'platforms', 'auditLogs', 'listings']
+const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources', 'platforms', 'auditLogs', 'listings', 'studentEnrollments', 'assignments', 'assignmentSubmissions', 'studentPayments']
 
 async function ensureTeacherData(uid) {
   const database = getDatabase()
@@ -802,6 +803,7 @@ app.get('/api/courses', (_request, response) => {
 })
 
 app.use('/api', listingRouter)
+app.use('/api', studentRouter)
 app.use('/api', platformRouter)
 app.use('/api', userRouter)
 
@@ -834,6 +836,15 @@ connectDatabase()
      database.collection('auditLogs').createIndex({ actorUid: 1, createdAt: -1 }),
      database.collection('listings').createIndex({ category: 1, createdAt: -1 }),
      database.collection('listings').createIndex({ teacherUid: 1, createdAt: -1 }),
+     database.collection('studentEnrollments').createIndex({ studentUid: 1, listingId: 1 }, { unique: true }),
+     database.collection('studentEnrollments').createIndex({ studentUid: 1, createdAt: -1 }),
+     database.collection('assignments').createIndex({ listingId: 1, dueDate: 1 }),
+     database.collection('assignmentSubmissions').createIndex({ assignmentId: 1, studentUid: 1 }, { unique: true }),
+     database.collection('studentPayments').createIndex({ studentUid: 1, createdAt: -1 }),
+     database.collection('studentPayments').createIndex(
+       { studentUid: 1, listingId: 1, mode: 1 },
+       { unique: true, partialFilterExpression: { mode: 'demo' } },
+     ),
      ...['messages', 'officeHours', 'resources'].map((name) => database.collection(name).createIndex({ uid: 1, createdAt: -1 })),
    ])
    databaseReady = true

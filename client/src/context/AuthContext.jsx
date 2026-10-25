@@ -46,7 +46,7 @@ export function AuthProvider({ children }) {
   }) : undefined, [])
   const signIn = async (email, password, remember = true) => {
     if (!auth) {
-      currentDemoToken = `demo-${email}`
+      currentDemoToken = `demo-teacher:${email}`
       const demoUser = { email, uid: `demo-${email}`, emailVerified: true, role: 'teacher' }
       setUser(demoUser)
       return demoUser
@@ -59,7 +59,7 @@ export function AuthProvider({ children }) {
   }
   const signInWithProvider = async () => {
     if (!auth) {
-      currentDemoToken = 'demo-google@demo.teachos'
+      currentDemoToken = 'demo-student:google@demo.teachos'
       const demoUser = { email: 'google@demo.teachos', emailVerified: true, role: 'student' }
       setUser(demoUser)
       return demoUser
@@ -80,7 +80,7 @@ export function AuthProvider({ children }) {
   }
   const signUp = async (email, password, profile = {}) => {
     if (!auth) {
-      currentDemoToken = `demo-${email}`
+      currentDemoToken = `demo-${profile.role || 'teacher'}:${email}`
       const demoUser = { email, emailVerified: true, displayName: profile.fullName, role: profile.role || 'teacher' }
       setUser(demoUser)
       return demoUser

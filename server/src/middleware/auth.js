@@ -61,11 +61,12 @@ export async function verifyToken(req, res, next) {
     const userDoc = await database.collection('users').findOne({ uid })
 
     if (!userDoc && process.env.NODE_ENV !== 'production' && uid.startsWith('demo-')) {
+      const demoRole = /^demo-(admin|teacher|student):/.exec(token)?.[1]
       req.authUid = uid
       req.user = {
         uid,
         email: `${uid}@example.com`,
-        role: 'teacher',
+        role: demoRole || 'teacher',
         platformId: null,
       }
       return next()

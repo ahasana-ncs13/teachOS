@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiGrid, FiHelpCircle, FiLogOut, FiPlus, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
+import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiFileText, FiGrid, FiHelpCircle, FiLogOut, FiPlus, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
@@ -12,6 +12,7 @@ function WorkspaceFrame({ title, description, children, onQuickAction }) {
   const navigation = [
     { to: '/dashboard', label: 'Dashboard', icon: FiGrid },
     { to: '/dashboard/classes', label: 'Classes', icon: FiBookOpen },
+    { to: '/dashboard/listings', label: 'My listings', icon: FiPlus },
     { to: '/dashboard/attendance', label: 'Attendance', icon: FiCheck },
     { to: '/dashboard/directory', label: 'Directory', icon: FiUsers },
     { to: '/dashboard/payments', label: 'Payments', icon: FiCalendar },
@@ -128,6 +129,120 @@ function ClassesPage() {
       </div>
     </article>)}</div> : <p className="workspace-empty">No classes found. Create a class to get started.</p>}
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
+  </WorkspaceFrame>
+}
+
+function TeacherListingsPage() {
+  const { user } = useAuth()
+  const [listings, setListings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [refresh, setRefresh] = useState(0)
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [assignmentListing, setAssignmentListing] = useState(null)
+  const [assignments, setAssignments] = useState([])
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false)
+  const [assignmentSaving, setAssignmentSaving] = useState(false)
+
+  useEffect(() => {
+    let current = true
+    api.get('/listings/my', { params: { page: 1, limit: 100 } }).then(({ data }) => {
+      if (current) setListings(data.listings || [])
+    }).catch((requestError) => {
+      if (current) setError(requestError.response?.data?.message || 'Could not load your listings.')
+    }).finally(() => {
+      if (current) setLoading(false)
+    })
+    return () => { current = false }
+  }, [user?.uid, refresh])
+
+  useEffect(() => {
+    if (!assignmentListing) return undefined
+    let current = true
+    api.get(`/listings/${encodeURIComponent(assignmentListing._id)}/assignments`).then(({ data }) => {
+      if (current) setAssignments(data.assignments || [])
+    }).catch((requestError) => {
+      if (current) setError(requestError.response?.data?.message || 'Could not load course assignments.')
+    }).finally(() => {
+      if (current) setAssignmentsLoading(false)
+    })
+    return () => { current = false }
+  }, [assignmentListing])
+
+  const submitListing = async (event) => {
+    event.preventDefault()
+    const form = Object.fromEntries(new FormData(event.currentTarget))
+    form.fee = Number(form.fee || 0)
+    setSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      await api.post('/listings', form)
+      setShowForm(false)
+      setNotice('Listing published and available on the TeachOS home page.')
+      setRefresh((value) => value + 1)
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Could not publish this listing.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeListing = async (listing) => {
+    if (!window.confirm(`Remove "${listing.name}" from the home page?`)) return
+    setError('')
+    setNotice('')
+    try {
+      await api.delete(`/listings/${encodeURIComponent(listing._id)}`)
+      setListings((current) => current.filter((item) => item._id !== listing._id))
+      setNotice('Listing removed from the home page.')
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Could not remove this listing.')
+    }
+  }
+
+  const createAssignment = async (event) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = Object.fromEntries(new FormData(event.currentTarget))
+    setAssignmentSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      const { data } = await api.post(`/listings/${encodeURIComponent(assignmentListing._id)}/assignments`, form)
+      setAssignments((current) => [data.assignment, ...current])
+      formElement.reset()
+      setNotice('Assignment published for students enrolled in this course.')
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Could not create this assignment.')
+    } finally {
+      setAssignmentSaving(false)
+    }
+  }
+
+  return <WorkspaceFrame title="My Listings" description="Publish and manage course listings shown on the TeachOS home page." onQuickAction={() => setQuickOpen(true)}>
+    <ResultBanner error={error} notice={notice} />
+    <div className="workspace-toolbar"><span className="workspace-listing-count">{listings.length} published listings</span><button className="workspace-primary" type="button" onClick={() => setShowForm((value) => !value)}><FiPlus /> Create listing</button></div>
+    {showForm && <form className="workspace-form workspace-class-form" onSubmit={submitListing}>
+      <h2>Publish a course or batch</h2>
+      <label>Listing title<input name="name" required minLength="3" maxLength="150" placeholder="e.g. HSC Physics evening batch" /></label>
+      <div className="workspace-form-row"><label>Category<select name="category" required defaultValue=""><option value="" disabled>Select category</option><option>Online Course</option><option>Offline Batch</option><option>Exam Preparation</option><option>Skill Course</option></select></label><label>Fee in taka<input name="fee" type="number" min="0" step="0.01" defaultValue="0" /></label></div>
+      <div className="workspace-form-row"><label>Duration / schedule<input name="duration" required minLength="2" maxLength="100" placeholder="12 weeks · weekends" /></label><label>Location or delivery mode<input name="location" required minLength="2" maxLength="200" placeholder="Online or Mirpur, Dhaka" /></label></div>
+      <label>Description<textarea name="description" required minLength="10" maxLength="5000" rows="4" placeholder="Describe the course, outcomes, and who should join." /></label>
+      <div className="workspace-form-row"><label>Start date<input name="startDate" type="date" /></label><label>Cover image URL (optional)<input name="image" type="url" placeholder="https://" /></label></div>
+      <div className="workspace-form-actions"><button className="workspace-primary" disabled={saving}>{saving ? 'Publishing...' : 'Publish listing'}</button><button className="workspace-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button></div>
+    </form>}
+    {loading ? <p className="workspace-empty">Loading your listings...</p> : listings.length ? <div className="workspace-table-wrap"><table className="workspace-table"><thead><tr><th>Course</th><th>Category</th><th>Fee</th><th>Duration</th><th>Published</th><th>Actions</th></tr></thead><tbody>{listings.map((item) => <tr key={item._id}><td><strong>{item.name}</strong><small>{item.location}</small></td><td>{item.category}</td><td>{item.fee ? `৳${Number(item.fee).toLocaleString('en-BD')}` : 'Free'}</td><td>{item.duration}</td><td>{new Date(item.createdAt).toLocaleDateString()}</td><td><div className="workspace-listing-actions"><button className="workspace-listing-assignments" type="button" onClick={() => { setAssignments([]); setAssignmentsLoading(true); setAssignmentListing(item); setNotice(''); setError('') }}><FiFileText /> Assignments</button><button className="workspace-listing-remove" type="button" onClick={() => removeListing(item)}>Remove</button></div></td></tr>)}</tbody></table></div> : <p className="workspace-empty">You have no published listings yet. Create one to show it on the TeachOS home page.</p>}
+    {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
+    {assignmentListing && <div className="workspace-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !assignmentSaving) setAssignmentListing(null) }}><section className="workspace-modal workspace-assignment-modal" role="dialog" aria-modal="true" aria-labelledby="course-assignments-title">
+      <button className="workspace-modal-close" type="button" aria-label="Close assignments" disabled={assignmentSaving} onClick={() => setAssignmentListing(null)}><FiX /></button>
+      <p>Course assignments</p><h2 id="course-assignments-title">{assignmentListing.name}</h2><ResultBanner error={error} notice={notice} />
+      <form className="workspace-assignment-form" onSubmit={createAssignment}><label>Assignment title<input name="title" required minLength="3" maxLength="150" placeholder="e.g. Week 1 problem set" /></label><label>Instructions<textarea name="description" maxLength="5000" rows="3" placeholder="What should students complete?" /></label><label>Due date (optional)<input name="dueDate" type="date" /></label><button className="workspace-primary" disabled={assignmentSaving}>{assignmentSaving ? 'Publishing...' : 'Publish assignment'}</button></form>
+      <h3>Published assignments</h3>{assignmentsLoading ? <p className="workspace-empty">Loading assignments...</p> : assignments.length ? <div className="workspace-assignment-list">{assignments.map((assignment) => <article key={assignment._id}><div><strong>{assignment.title}</strong><span>{assignment.dueDate ? `Due ${new Date(assignment.dueDate).toLocaleDateString()}` : 'No due date'} · {assignment.submissions?.length || 0} submissions</span>{assignment.description && <p>{assignment.description}</p>}</div>{assignment.submissions?.length > 0 && <details><summary>View student submissions</summary>{assignment.submissions.map((submission) => <blockquote key={submission._id}><strong>{submission.studentName || 'Student'}</strong><p>{submission.content}</p><small>{new Date(submission.submittedAt).toLocaleString()}</small></blockquote>)}</details>}</article>)}</div> : <p className="workspace-empty">No assignments for this course yet. Publish one above to share it with enrolled students.</p>}
+    </section></div>}
   </WorkspaceFrame>
 }
 
@@ -574,4 +689,4 @@ function formatMoney(amount) {
   return `৳${formattedAmount}`
 }
 
-export { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage }
+export { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage, TeacherListingsPage }
