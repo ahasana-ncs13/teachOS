@@ -44,7 +44,7 @@ export async function createListing(req, data) {
 
 export async function getListings(req, { search, category, page = 1, limit = 20 }) {
   const database = getDatabase()
-  const filter = { status: { $ne: 'removed' } }
+  const filter = { status: 'active' }
 
   if (category && typeof category === 'string' && category !== 'All') {
     // Case-insensitive match for category
@@ -87,7 +87,7 @@ export async function getListings(req, { search, category, page = 1, limit = 20 
 
 export async function getLatestListings(req, count = 6) {
   const database = getDatabase()
-  const filter = { status: { $ne: 'removed' } }
+  const filter = { status: 'active' }
 
   const limit = Math.min(Math.max(Number(count) || 6, 1), 20)
 
@@ -105,7 +105,7 @@ export async function getListingById(id) {
   const objectId = parseObjectId(id, 'listingId')
   const database = getDatabase()
   const listing = await database.collection('listings').findOne(
-    { _id: objectId, status: { $ne: 'removed' } },
+    { _id: objectId, status: 'active' },
     { projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } }
   )
 
@@ -172,6 +172,24 @@ export async function updateListing(req, id, updateData) {
   if (updateData.description !== undefined) updates.description = updateData.description.trim()
   if (updateData.image !== undefined) updates.image = updateData.image.trim()
   if (updateData.startDate !== undefined) updates.startDate = new Date(updateData.startDate)
+  if (updateData.status !== undefined) {
+    if (updateData.status === 'active' && existing.status !== 'active') {
+      if (!(Number(updateData.fee ?? existing.fee) > 0)) {
+        const error = new Error('Add a fee in BDT before publishing this paid course.')
+        error.status = 400
+        error.code = 'COURSE_FEE_REQUIRED'
+        throw error
+      }
+      if (!(updateData.duration ?? existing.duration)?.trim() || !(updateData.location ?? existing.location)?.trim() ||
+          (updateData.description ?? existing.description ?? '').trim().length < 10) {
+        const error = new Error('Add the course duration, location or delivery mode, and a description before publishing.')
+        error.status = 400
+        error.code = 'COURSE_DETAILS_REQUIRED'
+        throw error
+      }
+    }
+    updates.status = updateData.status
+  }
   updates.updatedAt = new Date()
 
   const result = await database.collection('listings').findOneAndUpdate(

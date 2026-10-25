@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { getDatabase } from '../db.js'
 import { requirePlatformActive, requireRole, verifyToken } from '../middleware/auth.js'
+import { notifyListingStudents } from '../services/notification.service.js'
 import * as listingService from '../services/listing.service.js'
 import { sanitizeInput, validatePagination, validateSchema } from '../utils/validation.js'
 
@@ -58,7 +59,7 @@ listingRouter.get('/listings/:id/assignments', verifyToken, requireRole('teacher
     const listing = await database.collection('listings').findOne({
       _id: listingId,
       teacherUid: req.authUid,
-      status: { $ne: 'removed' },
+      status: 'active',
     })
     if (!listing) return res.status(404).json({ message: 'Listing not found.', code: 'LISTING_NOT_FOUND' })
 
@@ -106,7 +107,7 @@ listingRouter.post('/listings/:id/assignments', verifyToken, requireRole('teache
     const listing = await database.collection('listings').findOne({
       _id: listingId,
       teacherUid: req.authUid,
-      status: { $ne: 'removed' },
+      status: 'active',
     })
     if (!listing) return res.status(404).json({ message: 'Listing not found.', code: 'LISTING_NOT_FOUND' })
 
@@ -123,8 +124,16 @@ listingRouter.post('/listings/:id/assignments', verifyToken, requireRole('teache
       createdAt: now,
       updatedAt: now,
     }
+
     const result = await database.collection('assignments').insertOne(assignment)
-    res.status(201).json({ assignment: { _id: result.insertedId, ...assignment } })
+    const notificationsSent = await notifyListingStudents(database, listingId, {
+      type: 'assignment',
+      title: 'New assignment',
+      message: `${title} was added to ${listing.name}${dueDateValue ? ` · due ${dueDateValue}` : ''}.`,
+      href: '/student/assignments',
+      relatedId: String(result.insertedId),
+    })
+    res.status(201).json({ assignment: { _id: result.insertedId, ...assignment }, notificationsSent })
   } catch (error) {
     next(error)
   }
@@ -163,7 +172,7 @@ listingRouter.post('/listings', verifyToken, requireRole('teacher'), async (req,
       category: {
         required: true,
         type: 'string',
-        enum: ['Online Course', 'Offline Batch', 'Exam Preparation', 'Skill Course'],
+        enum: ['Online Course', 'Offline Batch', 'Exam Preparation', 'Skill Course', 'Theory Course'],
       },
       fee: { required: false, type: 'number' },
       duration: { required: true, type: 'string', min: 2, max: 100 },
@@ -191,6 +200,7 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
       'description',
       'image',
       'startDate',
+      'status',
     ])
 
     validateSchema(body, {
@@ -198,9 +208,10 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
       category: {
         required: false,
         type: 'string',
-        enum: ['Online Course', 'Offline Batch', 'Exam Preparation', 'Skill Course'],
+        enum: ['Online Course', 'Offline Batch', 'Exam Preparation', 'Skill Course', 'Theory Course'],
       },
       fee: { required: false, type: 'number' },
+      status: { required: false, type: 'string', enum: ['active', 'draft'] },
       duration: { required: false, type: 'string', min: 2, max: 100 },
       location: { required: false, type: 'string', min: 2, max: 200 },
       description: { required: false, type: 'string', min: 10, max: 5000 },

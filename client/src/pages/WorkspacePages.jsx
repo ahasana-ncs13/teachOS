@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiFileText, FiGrid, FiHelpCircle, FiLogOut, FiPlus, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
+import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiExternalLink, FiFileText, FiGrid, FiHelpCircle, FiLogOut, FiPlus, FiSearch, FiSettings, FiUsers, FiVideo, FiX } from 'react-icons/fi'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
+import NotificationCenter from '../components/NotificationCenter'
 import '../styles/workspace-pages.css'
 
 function WorkspaceFrame({ title, description, children, onQuickAction }) {
@@ -33,7 +34,7 @@ function WorkspaceFrame({ title, description, children, onQuickAction }) {
       </div>
     </aside>
     <main className="workspace-main">
-      <header className="workspace-topbar"><label><FiSearch /><input placeholder={`Search ${title.toLowerCase()}...`} aria-label={`Search ${title}`} /></label><span>{user?.email}</span></header>
+      <header className="workspace-topbar"><label><FiSearch /><input placeholder={`Search ${title.toLowerCase()}...`} aria-label={`Search ${title}`} /></label><div className="workspace-header-tools"><NotificationCenter /><span>{user?.email}</span></div></header>
       <div className="workspace-content">
         <header className="workspace-page-heading"><div><p>Teacher workspace</p><h1>{title}</h1><span>{description}</span></div></header>
         {children}
@@ -81,13 +82,26 @@ function ResultBanner({ error, notice }) {
 
 function ClassesPage() {
   const data = useWorkspaceData('/classes', 'classes')
+  const setDataError = data.setError
+  const [teacherListings, setTeacherListings] = useState([])
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [classType, setClassType] = useState('in_person')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
   const visible = data.items.filter((item) => item.title.toLowerCase().includes(search.toLowerCase()))
+
+  useEffect(() => {
+    let current = true
+    api.get('/listings/my', { params: { page: 1, limit: 100 } }).then(({ data: result }) => {
+      if (current) setTeacherListings(result.listings || [])
+    }).catch((requestError) => {
+      if (current) setDataError(requestError.response?.data?.message || 'Could not load your courses for live-class scheduling.')
+    })
+    return () => { current = false }
+  }, [setDataError])
 
   const submitClass = async (event) => {
     event.preventDefault()
@@ -96,12 +110,16 @@ function ClassesPage() {
     data.setError('')
     setNotice('')
     try {
-      if (editing) await api.put(`/classes/${encodeURIComponent(data.uid)}/${encodeURIComponent(editing.id)}`, values)
-      else await api.post(`/classes/${encodeURIComponent(data.uid)}`, values)
+      const response = editing
+        ? await api.put(`/classes/${encodeURIComponent(data.uid)}/${encodeURIComponent(editing.id)}`, values)
+        : await api.post(`/classes/${encodeURIComponent(data.uid)}`, values)
       await data.refresh()
       setShowForm(false)
       setEditing(null)
-      setNotice(editing ? 'Class changes saved.' : 'Class saved to MongoDB.')
+      setClassType('in_person')
+      setNotice(response.data.notificationsSent === false
+        ? 'Class saved, but some role notifications could not be delivered.'
+        : editing ? 'Class changes saved and relevant users notified.' : 'Class saved and relevant users notified.')
     } catch (requestError) {
       data.setError(requestError.response?.data?.message || 'Could not save this class.')
     } finally {
@@ -111,21 +129,27 @@ function ClassesPage() {
 
   return <WorkspaceFrame title="Active Classes" description="Manage your course roster, schedules, and upcoming sessions." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={data.error} notice={notice} />
-    <div className="workspace-toolbar"><label><FiSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search classes..." /></label><button className="workspace-primary" type="button" onClick={() => { setEditing(null); setShowForm((value) => !value) }}><FiPlus /> Create class</button></div>
+    <div className="workspace-toolbar"><label><FiSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search classes..." /></label><button className="workspace-primary" type="button" onClick={() => { setEditing(null); setClassType('in_person'); setShowForm((value) => !value) }}><FiPlus /> Create class</button></div>
     {showForm && <form className="workspace-form workspace-class-form" onSubmit={submitClass}>
       <h2>{editing ? 'Edit class' : 'Create a class'}</h2>
       <label>Class name<input name="title" required maxLength="120" defaultValue={editing?.title || ''} /></label>
       <label>Schedule<input name="schedule" required maxLength="120" placeholder="Mon, Wed, Fri" defaultValue={editing?.schedule || ''} /></label>
       <div className="workspace-form-row"><label>Starts at<input name="startTime" required defaultValue={editing?.startTime || ''} placeholder="10:00 AM" /></label><label>Ends at<input name="endTime" required defaultValue={editing?.endTime || ''} placeholder="11:30 AM" /></label></div>
+      <label>Class format<select name="classType" value={classType} onChange={(event) => setClassType(event.target.value)}><option value="in_person">In-person / regular class</option><option value="live">Live class on Google Meet</option></select></label>
+      {classType === 'live' && <div className="workspace-live-fields">
+        <label>Course for enrolled students<select name="listingId" required defaultValue={editing?.listingId || ''}><option value="" disabled>Select your course</option>{teacherListings.filter((listing) => listing.status === 'active').map((listing) => <option key={listing._id} value={listing._id}>{listing.name}</option>)}</select><small>Only students enrolled in this published course will receive the Meet link and live-class notification.</small></label>
+        <div className="workspace-form-row"><label>Live class date<input name="classDate" type="date" required defaultValue={editing?.classDate || ''} /></label><div className="workspace-meet-create"><span>Google Meet link</span><a href="https://meet.google.com/new" target="_blank" rel="noreferrer"><FiExternalLink /> Create a Meet link</a><small>Open Meet, create a meeting, then paste its link below.</small></div></div>
+        <label>Meet URL<input name="meetUrl" type="url" required maxLength="2048" defaultValue={editing?.meetUrl || ''} placeholder="https://meet.google.com/abc-defg-hij" /></label>
+      </div>}
       <label>Location<input name="location" required maxLength="120" defaultValue={editing?.location || ''} placeholder="Room 4B / Hybrid" /></label>
       <label>Department<input name="department" required maxLength="100" defaultValue={editing?.department || ''} placeholder="Sciences" /></label>
       <label>Status<select name="status" defaultValue={editing?.status || 'active'}><option value="active">Active</option><option value="upcoming">Upcoming</option><option value="completed">Completed</option></select></label>
-      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Save class'}</button><button className="workspace-secondary" type="button" onClick={() => { setShowForm(false); setEditing(null) }}>Cancel</button></div>
+      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : classType === 'live' ? 'Schedule live class' : 'Save class'}</button><button className="workspace-secondary" type="button" onClick={() => { setShowForm(false); setEditing(null); setClassType('in_person') }}>Cancel</button></div>
     </form>}
     {data.loading ? <p className="workspace-empty">Loading classes...</p> : visible.length ? <div className="workspace-class-grid">{visible.map((item) => <article className="workspace-card class-card" key={item.id}>
       <div className="class-card-art"><span className={item.status}>{item.status}</span></div>
-      <div className="class-card-body"><h2>{item.title}</h2><p><FiCalendar /> {item.schedule} · {item.startTime}–{item.endTime}</p><p><FiUsers /> {item.enrolled} students enrolled</p><p><FiBookOpen /> {item.location}</p>
-        <div className="workspace-card-actions"><button type="button" onClick={() => { setEditing(item); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Manage class</button><span>{item.isSample ? 'Sample' : 'Saved'}</span></div>
+      <div className="class-card-body"><h2>{item.title}</h2><p><FiCalendar /> {item.schedule} · {item.startTime}–{item.endTime}</p>{item.classType === 'live' && <p><FiVideo /> Google Meet · {item.classDate}</p>}<p><FiUsers /> {item.enrolled} students enrolled</p><p><FiBookOpen /> {item.location}</p>
+        <div className="workspace-card-actions"><button type="button" onClick={() => { setEditing(item); setClassType(item.classType || 'in_person'); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Manage class</button>{item.classType === 'live' ? <a href={item.meetUrl} target="_blank" rel="noreferrer">Open Meet <FiExternalLink /></a> : <span>{item.isSample ? 'Sample' : 'Saved'}</span>}</div>
       </div>
     </article>)}</div> : <p className="workspace-empty">No classes found. Create a class to get started.</p>}
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
@@ -142,6 +166,8 @@ function TeacherListingsPage() {
   const [notice, setNotice] = useState('')
   const [refresh, setRefresh] = useState(0)
   const [quickOpen, setQuickOpen] = useState(false)
+  const [publishingListing, setPublishingListing] = useState(null)
+  const [publishing, setPublishing] = useState(false)
   const [assignmentListing, setAssignmentListing] = useState(null)
   const [assignments, setAssignments] = useState([])
   const [assignmentsLoading, setAssignmentsLoading] = useState(false)
@@ -204,6 +230,33 @@ function TeacherListingsPage() {
     }
   }
 
+  const publishListing = async (event) => {
+    event.preventDefault()
+    if (!publishingListing) return
+    const form = Object.fromEntries(new FormData(event.currentTarget))
+    const fee = Number(form.fee)
+    if (!Number.isFinite(fee) || fee <= 0) {
+      setError('Enter a BDT fee greater than zero before publishing this course.')
+      return
+    }
+
+    form.fee = fee
+    form.status = 'active'
+    setPublishing(true)
+    setError('')
+    setNotice('')
+    try {
+      const { data } = await api.put(`/listings/${encodeURIComponent(publishingListing._id)}`, form)
+      setListings((current) => current.map((item) => item._id === data.listing._id ? data.listing : item))
+      setPublishingListing(null)
+      setNotice(`${data.listing.name} is published and available to students.`)
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Could not publish this course.')
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   const createAssignment = async (event) => {
     event.preventDefault()
     const formElement = event.currentTarget
@@ -225,17 +278,22 @@ function TeacherListingsPage() {
 
   return <WorkspaceFrame title="My Listings" description="Publish and manage course listings shown on the TeachOS home page." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={error} notice={notice} />
-    <div className="workspace-toolbar"><span className="workspace-listing-count">{listings.length} published listings</span><button className="workspace-primary" type="button" onClick={() => setShowForm((value) => !value)}><FiPlus /> Create listing</button></div>
+    <div className="workspace-toolbar"><span className="workspace-listing-count">{listings.filter((item) => item.status === 'active').length} published · {listings.filter((item) => item.status === 'draft').length} drafts</span><button className="workspace-primary" type="button" onClick={() => setShowForm((value) => !value)}><FiPlus /> Create listing</button></div>
     {showForm && <form className="workspace-form workspace-class-form" onSubmit={submitListing}>
       <h2>Publish a course or batch</h2>
       <label>Listing title<input name="name" required minLength="3" maxLength="150" placeholder="e.g. HSC Physics evening batch" /></label>
-      <div className="workspace-form-row"><label>Category<select name="category" required defaultValue=""><option value="" disabled>Select category</option><option>Online Course</option><option>Offline Batch</option><option>Exam Preparation</option><option>Skill Course</option></select></label><label>Fee in taka<input name="fee" type="number" min="0" step="0.01" defaultValue="0" /></label></div>
+      <div className="workspace-form-row"><label>Category<select name="category" required defaultValue=""><option value="" disabled>Select category</option><option>Online Course</option><option>Offline Batch</option><option>Exam Preparation</option><option>Skill Course</option><option>Theory Course</option></select></label><label>Fee in taka<input name="fee" type="number" min="0" step="0.01" defaultValue="0" /></label></div>
       <div className="workspace-form-row"><label>Duration / schedule<input name="duration" required minLength="2" maxLength="100" placeholder="12 weeks · weekends" /></label><label>Location or delivery mode<input name="location" required minLength="2" maxLength="200" placeholder="Online or Mirpur, Dhaka" /></label></div>
       <label>Description<textarea name="description" required minLength="10" maxLength="5000" rows="4" placeholder="Describe the course, outcomes, and who should join." /></label>
       <div className="workspace-form-row"><label>Start date<input name="startDate" type="date" /></label><label>Cover image URL (optional)<input name="image" type="url" placeholder="https://" /></label></div>
       <div className="workspace-form-actions"><button className="workspace-primary" disabled={saving}>{saving ? 'Publishing...' : 'Publish listing'}</button><button className="workspace-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button></div>
     </form>}
-    {loading ? <p className="workspace-empty">Loading your listings...</p> : listings.length ? <div className="workspace-table-wrap"><table className="workspace-table"><thead><tr><th>Course</th><th>Category</th><th>Fee</th><th>Duration</th><th>Published</th><th>Actions</th></tr></thead><tbody>{listings.map((item) => <tr key={item._id}><td><strong>{item.name}</strong><small>{item.location}</small></td><td>{item.category}</td><td>{item.fee ? `৳${Number(item.fee).toLocaleString('en-BD')}` : 'Free'}</td><td>{item.duration}</td><td>{new Date(item.createdAt).toLocaleDateString()}</td><td><div className="workspace-listing-actions"><button className="workspace-listing-assignments" type="button" onClick={() => { setAssignments([]); setAssignmentsLoading(true); setAssignmentListing(item); setNotice(''); setError('') }}><FiFileText /> Assignments</button><button className="workspace-listing-remove" type="button" onClick={() => removeListing(item)}>Remove</button></div></td></tr>)}</tbody></table></div> : <p className="workspace-empty">You have no published listings yet. Create one to show it on the TeachOS home page.</p>}
+    {loading ? <p className="workspace-empty">Loading your listings...</p> : listings.length ? <div className="workspace-table-wrap"><table className="workspace-table"><thead><tr><th>Course</th><th>Category</th><th>Fee</th><th>Duration</th><th>Status</th><th>Actions</th></tr></thead><tbody>{listings.map((item) => <tr key={item._id}><td><strong>{item.name}</strong><small>{item.location || 'Delivery mode pending'}</small></td><td>{item.category}</td><td>{item.status === 'draft' ? 'Set before publishing' : item.fee ? `৳${Number(item.fee).toLocaleString('en-BD')}` : 'Free'}</td><td>{item.duration || 'Details pending'}</td><td>{item.status === 'draft' ? 'Draft' : 'Published'}</td><td><div className="workspace-listing-actions">{item.status === 'draft' ? <button className="workspace-listing-assignments" type="button" onClick={() => { setPublishingListing(item); setError(''); setNotice('') }}>Complete &amp; publish</button> : <button className="workspace-listing-assignments" type="button" onClick={() => { setAssignments([]); setAssignmentsLoading(true); setAssignmentListing(item); setNotice(''); setError('') }}><FiFileText /> Assignments</button>}<button className="workspace-listing-remove" type="button" onClick={() => removeListing(item)}>Remove</button></div></td></tr>)}</tbody></table></div> : <p className="workspace-empty">You have no courses yet. Create a listing to show it on the TeachOS home page.</p>}
+    {publishingListing && <div className="workspace-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !publishing) setPublishingListing(null) }}><section className="workspace-modal" role="dialog" aria-modal="true" aria-labelledby="publish-course-title">
+      <button className="workspace-modal-close" type="button" aria-label="Close" disabled={publishing} onClick={() => setPublishingListing(null)}><FiX /></button>
+      <p>Publish course</p><h2 id="publish-course-title">{publishingListing.name}</h2><ResultBanner error={error} notice={notice} />
+      <form className="workspace-assignment-form" onSubmit={publishListing}><label>Course fee in BDT<input name="fee" type="number" min="0.01" step="0.01" required autoFocus /></label><label>Duration<input name="duration" required minLength="2" maxLength="100" defaultValue={publishingListing.duration} placeholder="e.g. One semester" /></label><label>Location or delivery mode<input name="location" required minLength="2" maxLength="200" defaultValue={publishingListing.location} placeholder="e.g. Campus or online" /></label><label>Course description<textarea name="description" required minLength="10" maxLength="5000" rows="4" defaultValue={publishingListing.description} /></label><p>Publishing makes this course visible in the public catalog. Students must complete demo payment before enrolling.</p><button className="workspace-primary" disabled={publishing}>{publishing ? 'Publishing...' : 'Save details & publish'}</button></form>
+    </section></div>}
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
     {assignmentListing && <div className="workspace-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !assignmentSaving) setAssignmentListing(null) }}><section className="workspace-modal workspace-assignment-modal" role="dialog" aria-modal="true" aria-labelledby="course-assignments-title">
       <button className="workspace-modal-close" type="button" aria-label="Close assignments" disabled={assignmentSaving} onClick={() => setAssignmentListing(null)}><FiX /></button>
@@ -464,7 +522,6 @@ function PaymentsPage() {
   const data = useWorkspaceData('/payments', 'payments', false)
   const { uid, setError, setItems, setLoading } = data
   const [finance, setFinance] = useState(null)
-  const [classes, setClasses] = useState([])
   const [mode, setMode] = useState('')
   const [notice, setNotice] = useState('')
   const [quickOpen, setQuickOpen] = useState(false)
@@ -472,13 +529,9 @@ function PaymentsPage() {
   const refresh = async () => {
     setError('')
     try {
-      const [paymentResponse, classResponse] = await Promise.all([
-        api.get(`/payments/${encodeURIComponent(uid)}`),
-        api.get(`/classes/${encodeURIComponent(uid)}`),
-      ])
-      setFinance(paymentResponse.data)
-      setClasses(classResponse.data.classes)
-      setItems(paymentResponse.data.payments)
+      const { data: paymentData } = await api.get(`/payments/${encodeURIComponent(uid)}`)
+      setFinance(paymentData)
+      setItems(paymentData.payments)
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Could not load payment data.')
     } finally {
@@ -487,14 +540,10 @@ function PaymentsPage() {
   }
   useEffect(() => {
     let current = true
-    Promise.all([
-      api.get(`/payments/${encodeURIComponent(uid)}`),
-      api.get(`/classes/${encodeURIComponent(uid)}`),
-    ]).then(([paymentResponse, classResponse]) => {
+    api.get(`/payments/${encodeURIComponent(uid)}`).then(({ data: paymentData }) => {
       if (!current) return
-      setFinance(paymentResponse.data)
-      setClasses(classResponse.data.classes)
-      setItems(paymentResponse.data.payments)
+      setFinance(paymentData)
+      setItems(paymentData.payments)
     }).catch((requestError) => {
       if (current) setError(requestError.response?.data?.message || 'Could not load payment data.')
     }).finally(() => {
@@ -509,16 +558,9 @@ function PaymentsPage() {
     setError('')
     setNotice('')
     try {
-      if (mode === 'earning') {
-        values.amount = Number(values.amount)
-        if (!values.classId) delete values.classId
-        await api.post(`/payments/${encodeURIComponent(uid)}`, values)
-        setNotice('Payment record saved to MongoDB.')
-      } else {
-        values.amount = Number(values.amount)
-        await api.post(`/payments/${encodeURIComponent(uid)}/payout-requests`, values)
-        setNotice('Payout request recorded. It will not transfer money automatically.')
-      }
+      values.amount = Number(values.amount)
+      await api.post(`/payments/${encodeURIComponent(uid)}/payout-requests`, values)
+      setNotice('Payout request saved for admin review. No transfer is initiated automatically.')
       await refresh()
       setMode('')
     } catch (requestError) {
@@ -527,29 +569,19 @@ function PaymentsPage() {
       setBusy(false)
     }
   }
-  const totalPaid = finance?.payoutRequests?.filter((item) => item.status === 'paid').reduce((sum, item) => sum + item.amount, 0) || 0
-
-  return <WorkspaceFrame title="Payments & Earnings" description="Review saved financial records and create payout requests." onQuickAction={() => setQuickOpen(true)}>
+  return <WorkspaceFrame title="Payments & Earnings" description="Review Stripe-confirmed payments, monthly commission, and payout requests." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={data.error} notice={notice} />
-    <div className="workspace-finance-actions"><button className="workspace-secondary" type="button" onClick={() => setMode(mode === 'earning' ? '' : 'earning')}><FiPlus /> Record payment</button><button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request payout</button></div>
-    <div className="workspace-metrics workspace-finance-metrics"><article><span>Total recorded earnings</span><strong>{formatMoney(finance?.earnings || 0, finance?.currency || 'BDT')}</strong></article><article><span>Available for payout</span><strong>{formatMoney(finance?.available || 0, finance?.currency || 'BDT')}</strong></article><article><span>Paid out</span><strong>{formatMoney(totalPaid, finance?.currency || 'BDT')}</strong></article></div>
-    {finance?.hasSample && <p className="workspace-info">The earnings and payout marked “Sample” are starter data stored for this account. Add your own payment records to replace them.</p>}
-    <p className="workspace-info">Payout requests are stored for review only. Connect a payment provider separately before enabling real transfers.</p>
+    <div className="workspace-finance-actions"><button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request payout</button></div>
+    <div className="workspace-metrics workspace-finance-metrics"><article><span>{finance?.month || 'This month'} gross payments</span><strong>{formatMoney(finance?.monthly?.grossAmount || 0, 'BDT')}</strong></article><article><span>TeachOS commission (5%)</span><strong>{formatMoney(finance?.monthly?.commissionAmount || 0, 'BDT')}</strong></article><article><span>Teacher net (95%)</span><strong>{formatMoney(finance?.monthly?.netAmount || 0, 'BDT')}</strong></article><article><span>Available for payout</span><strong>{formatMoney(finance?.available || 0, 'BDT')}</strong></article></div>
+    <p className="workspace-info">Only Stripe-confirmed live payments count toward income, commission, and payout availability. Test transactions are excluded. Payout requests are saved for admin review; no transfer is initiated automatically.</p>
     {mode && <form className="workspace-form workspace-class-form" onSubmit={submitFinance}>
-      <h2>{mode === 'earning' ? 'Record a payment' : 'Request a payout'}</h2>
+      <h2>Request a payout</h2>
       <label>Amount<input name="amount" type="number" step="0.01" min="0.01" required /></label>
-      {mode === 'earning' ? <>
-        <label>Description<input name="description" required maxLength="160" placeholder="Tuition payment" /></label>
-        <label>Class (optional)<select name="classId"><option value="">Not assigned to a class</option>{classes.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>
-        <label>Date<input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} /></label>
-        <label>Currency<input name="currency" defaultValue="BDT" pattern="[A-Z]{3}" maxLength="3" required /></label>
-      </> : <>
-        <label>Method<select name="method" required><option value="bank">Bank transfer (request only)</option><option value="mobile_wallet">Mobile wallet (request only)</option></select></label>
-        <label>Account last 4 digits (optional)<input name="accountLast4" inputMode="numeric" pattern="[0-9]{4}" maxLength="4" /></label>
-      </>}
-      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : mode === 'earning' ? 'Save payment' : 'Submit request'}</button><button className="workspace-secondary" type="button" onClick={() => setMode('')}>Cancel</button></div>
+      <label>Method<select name="method" required><option value="bank">Bank transfer (request only)</option><option value="mobile_wallet">Mobile wallet (request only)</option></select></label>
+      <label>Account last 4 digits (optional)<input name="accountLast4" inputMode="numeric" pattern="[0-9]{4}" maxLength="4" /></label>
+      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Submit request'}</button><button className="workspace-secondary" type="button" onClick={() => setMode('')}>Cancel</button></div>
     </form>}
-    <section className="workspace-card workspace-finance-list"><h2>Recent transactions</h2>{data.loading ? <p className="workspace-empty">Loading transactions...</p> : [...(finance?.payoutRequests || []).map((item) => ({ ...item, type: 'payout' })), ...data.items].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((item) => <article key={item.id}><div><strong>{item.description || (item.type === 'payout' ? 'Payout request' : 'Payment')}</strong><small>{item.date || new Date(item.createdAt).toLocaleDateString()} · {item.status}{item.isSample ? ' · Sample' : ''}</small></div><b className={item.type === 'payout' ? 'negative' : ''}>{item.type === 'payout' ? '−' : '+'}{formatMoney(item.amount, item.currency || finance?.currency || 'BDT')}</b></article>)}</section>
+    <section className="workspace-card workspace-finance-list"><h2>Recent payments &amp; payout requests</h2>{data.loading ? <p className="workspace-empty">Loading transactions...</p> : [...(finance?.payoutRequests || []).map((item) => ({ ...item, recordType: 'payout' })), ...(finance?.payments || []).map((item) => ({ ...item, recordType: 'payment' }))].sort((a, b) => new Date(b.createdAt || b.paidAt) - new Date(a.createdAt || a.paidAt)).map((item) => <article key={item.id || item.paymentId || item._id}><div><strong>{item.recordType === 'payout' ? 'Payout request' : item.courseName || 'Course payment'}</strong><small>{new Date(item.createdAt || item.paidAt).toLocaleDateString()} · {item.recordType === 'payout' ? item.status : `${item.gateway === 'stripe' ? 'Stripe' : 'bKash'} ${item.mode} · ${item.status}${['test', 'sandbox'].includes(item.mode) ? ' · Excluded from income' : ''}`}</small></div><b className={item.recordType === 'payout' ? 'negative' : ''}>{item.recordType === 'payout' ? '−' : '+'}{formatMoney(item.amount, 'BDT')}</b></article>)}</section>
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
   </WorkspaceFrame>
 }

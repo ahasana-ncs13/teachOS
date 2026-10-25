@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { FiArrowLeft, FiBell, FiBook, FiCreditCard, FiFileText, FiGrid, FiHelpCircle, FiMenu, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
 import { Link, NavLink } from 'react-router-dom'
+import NotificationCenter from '../../components/NotificationCenter'
 import '../../styles/admin.css'
 
 const navItems = [
@@ -43,7 +44,7 @@ export default function AdminLayout({ title, subtitle, children }) {
         </div>
         <div className="admin-tools">
           <div className="admin-search"><FiSearch /><input aria-label="Search" placeholder="Search teachers, batches..." /></div>
-          <button className="admin-icon-btn" aria-label="Notifications"><FiBell /><i /></button>
+          <NotificationCenter />
           <span className="admin-avatar">A</span>
         </div>
       </header>

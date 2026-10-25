@@ -14,6 +14,7 @@ const slides = [
 const categories = [
   ['Online course', 'Live interactive classes, whiteboard recordings, and synchronized batch discussions.', <FiMonitor key="online" />, 'Explore listings'],
   ['Offline batch', 'Physical classroom seating, neighborhood coaching centers, and laboratory drills.', <FiBookOpen key="offline" />, 'Explore listings'],
+  ['Theory Course', 'University-level theory subjects taught by TeachOS instructors.', <FiGrid key="theory" />, 'Explore listings'],
   ['Exam preparation', 'Targeted drills for HSC, BCS, IELTS, SAT, and admission exams.', <FiCheck key="exam" />, 'Explore listings'],
   ['Skill course', 'Practical capabilities in web development, data science, English, and design.', <FiCode key="skill" />, 'Explore listings'],
 ]

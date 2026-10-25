@@ -55,7 +55,7 @@ export default function AdminClasses() {
       <section className="classes-filters" aria-label="Listing filters">
         <div className="classes-filter-label"><FiFilter /><span>Filter category</span></div>
         <label className="classes-select-label"><span className="sr-only">Filter by category</span><select value={category} onChange={(event) => setCategory(event.target.value)}>
-          <option value="">All categories</option><option>Online Course</option><option>Offline Batch</option><option>Exam Preparation</option><option>Skill Course</option>
+          <option value="">All categories</option><option>Online Course</option><option>Offline Batch</option><option>Exam Preparation</option><option>Skill Course</option><option>Theory Course</option>
         </select></label>
         <div className="classes-view-toggle" aria-label="Listing display mode">
           <button type="button" aria-label="Grid view" aria-pressed={view === 'grid'} onClick={() => setView('grid')}><FiGrid /></button>

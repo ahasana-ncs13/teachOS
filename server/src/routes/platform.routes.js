@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { requirePlatformActive, requireRole, verifyToken } from '../middleware/auth.js'
 import { getDatabase } from '../db.js'
 import * as platformService from '../services/platform.service.js'
+import { getMonthlyCommission } from '../services/finance.service.js'
 import { sanitizeInput, validatePagination, validateSchema } from '../utils/validation.js'
 
 export const platformRouter = Router()
@@ -12,20 +13,18 @@ platformRouter.use(['/platforms', '/admin/billing'], verifyToken)
 platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (_req, res, next) => {
   try {
     const database = getDatabase()
-    const [teachers, students, listings, classes, earnings, payouts, latestListings] = await Promise.all([
+    const [teachers, students, listings, classes, commission, payouts, latestListings] = await Promise.all([
       database.collection('users').countDocuments({ role: 'teacher', status: { $ne: 'removed' } }),
       database.collection('users').countDocuments({ role: 'student', status: { $ne: 'removed' } }),
-      database.collection('listings').countDocuments({ status: { $ne: 'removed' } }),
+      database.collection('listings').countDocuments({ status: 'active' }),
       database.collection('classes').countDocuments(),
-      database.collection('payments').aggregate([
-        { $match: { type: 'earning' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]).toArray(),
+      getMonthlyCommission(database),
       database.collection('payoutRequests').aggregate([
+        { $match: { isSample: { $ne: true } } },
         { $group: { _id: null, total: { $sum: '$amount' }, pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0] } } } },
       ]).toArray(),
       database.collection('listings').find(
-        { status: { $ne: 'removed' } },
+        { status: 'active' },
         { projection: { teacherUid: 0, platformId: 0, removedAt: 0, removedBy: 0 } },
       ).sort({ createdAt: -1 }).limit(6).toArray(),
     ])
@@ -36,7 +35,8 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
         students,
         listings,
         classes,
-        recordedEarnings: earnings[0]?.total || 0,
+        recordedEarnings: commission.commissionAmount,
+        monthlyCommission: commission,
         payoutRequests: payouts[0]?.total || 0,
         pendingPayouts: payouts[0]?.pending || 0,
         latestListings,
@@ -50,24 +50,25 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
 platformRouter.get('/admin/payments', verifyToken, requireRole('admin'), async (_req, res, next) => {
   try {
     const database = getDatabase()
-    const [paymentRecords, payoutRecords, users] = await Promise.all([
-      database.collection('payments').find().sort({ createdAt: -1 }).limit(100).toArray(),
-      database.collection('payoutRequests').find().sort({ createdAt: -1 }).limit(100).toArray(),
+    const month = typeof _req.query?.month === 'string' ? _req.query.month : undefined
+    const [paymentRecords, payoutRecords, users, commission] = await Promise.all([
+      database.collection('studentPayments').find({ gateway: { $in: ['stripe', 'bkash'] } }).sort({ createdAt: -1 }).limit(100).toArray(),
+      database.collection('payoutRequests').find({ isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
       database.collection('users').find({}, { projection: { uid: 1, fullName: 1, displayName: 1, email: 1 } }).toArray(),
+      getMonthlyCommission(database, month),
     ])
     const usersByUid = new Map(users.map((user) => [user.uid, user.fullName || user.displayName || user.email || 'TeachOS user']))
     const payments = paymentRecords.map((record) => ({
       ...record,
-      person: usersByUid.get(record.uid) || 'TeachOS user',
+      person: record.teacherName || usersByUid.get(record.teacherUid) || 'TeachOS teacher',
       recordType: 'earning',
+      transactionType: record.gateway === 'stripe' ? `Stripe ${record.mode} payment` : `bKash ${record.mode} payment`,
     }))
     const payouts = payoutRecords.map((record) => ({
       ...record,
       person: usersByUid.get(record.uid) || 'TeachOS user',
       recordType: 'payout',
     }))
-    const recordedEarnings = paymentRecords.filter((record) => record.type === 'earning')
-      .reduce((total, record) => total + (Number(record.amount) || 0), 0)
     const requestedPayouts = payoutRecords.filter((record) => record.status !== 'rejected')
       .reduce((total, record) => total + (Number(record.amount) || 0), 0)
 
@@ -75,7 +76,14 @@ platformRouter.get('/admin/payments', verifyToken, requireRole('admin'), async (
       payments,
       payouts,
       summary: {
-        recordedEarnings,
+        month: commission.month,
+        timezone: commission.timezone,
+        currency: commission.currency,
+        commissionRate: commission.commissionRate,
+        monthlyGross: commission.grossAmount,
+        recordedEarnings: commission.commissionAmount,
+        teacherNet: commission.teacherNetAmount,
+        teacherBreakdown: commission.teachers,
         requestedPayouts,
         pendingPayouts: payoutRecords.filter((record) => record.status === 'pending')
           .reduce((total, record) => total + (Number(record.amount) || 0), 0),

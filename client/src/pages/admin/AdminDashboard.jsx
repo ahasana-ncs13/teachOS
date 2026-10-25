@@ -24,7 +24,7 @@ export default function AdminDashboard() {
   }, [])
 
   const stats = overview ? [
-    { label: 'Recorded earnings', value: taka(overview.recordedEarnings), detail: 'From payment records', icon: FiBriefcase },
+    { label: 'Platform commission this month', value: taka(overview.monthlyCommission?.commissionAmount), detail: `${overview.monthlyCommission?.month || 'Current month'} · 5% of confirmed live BDT payments`, icon: FiBriefcase },
     { label: 'Pending payouts', value: taka(overview.pendingPayouts), detail: 'Awaiting review', icon: FiCreditCard },
     { label: 'Active teachers', value: overview.teachers.toLocaleString(), detail: 'Registered teacher accounts', icon: FiAward },
     { label: 'Students', value: overview.students.toLocaleString(), detail: 'Registered student accounts', icon: FiUsers },

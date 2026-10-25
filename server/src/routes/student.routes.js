@@ -1,7 +1,7 @@
 import { Router } from 'express'
-import { randomUUID } from 'node:crypto'
 import { getDatabase } from '../db.js'
 import { requireRole, verifyToken } from '../middleware/auth.js'
+import { createNotifications, notifyAdmins } from '../services/notification.service.js'
 import { parseObjectId } from '../utils/validation.js'
 
 export const studentRouter = Router()
@@ -22,7 +22,8 @@ async function getEligibleStudentEnrollments(database, studentUid) {
       studentUid,
       listingId: { $in: listingIds },
       status: 'paid',
-      mode: { $in: ['demo', 'test'] },
+      gateway: { $in: ['stripe', 'bkash'] },
+      mode: { $in: ['test', 'sandbox', 'live'] },
     }, { projection: { listingId: 1 } }).toArray(),
   ])
   const listingsById = new Map(listings.map((listing) => [String(listing._id), listing]))
@@ -31,7 +32,7 @@ async function getEligibleStudentEnrollments(database, studentUid) {
   return enrollments.filter((enrollment) => {
     const currentListing = listingsById.get(String(enrollment.listingId))
     const fee = Number(currentListing?.fee ?? enrollment.fee) || 0
-    return fee <= 0 || ['paid', 'demo_paid', 'test_paid'].includes(enrollment.paymentStatus) || paidListingIds.has(String(enrollment.listingId))
+    return fee <= 0 || ['paid', 'test_paid', 'sandbox_paid', 'live_paid'].includes(enrollment.paymentStatus) || paidListingIds.has(String(enrollment.listingId))
   })
 }
 
@@ -49,9 +50,9 @@ studentRouter.get('/student/dashboard', async (req, res, next) => {
     const studentUid = req.authUid
     const enrollments = await getEligibleStudentEnrollments(database, studentUid)
     const listingIds = enrollments.map((enrollment) => enrollment.listingId)
-    const [listings, assignments, submissions] = await Promise.all([
+    const [listings, assignments, submissions, liveClasses] = await Promise.all([
       listingIds.length
-        ? database.collection('listings').find({ _id: { $in: listingIds }, status: { $ne: 'removed' } }, {
+        ? database.collection('listings').find({ _id: { $in: listingIds }, status: 'active' }, {
           projection: { teacherUid: 0, platformId: 0, removedAt: 0, removedBy: 0 },
         }).toArray()
         : [],
@@ -61,6 +62,13 @@ studentRouter.get('/student/dashboard', async (req, res, next) => {
         }).sort({ dueDate: 1 }).toArray()
         : [],
       database.collection('assignmentSubmissions').find({ studentUid }).toArray(),
+      listingIds.length
+        ? database.collection('classes').find({
+          listingId: { $in: listingIds.map(String) },
+          classType: 'live',
+          status: { $in: ['active', 'upcoming'] },
+        }, { projection: { uid: 0, students: 0 } }).sort({ classDate: 1, startTime: 1 }).toArray()
+        : [],
     ])
     const listingsById = new Map(listings.map((listing) => [String(listing._id), listing]))
     const submissionsByAssignment = new Map(submissions.map((submission) => [String(submission.assignmentId), submission]))
@@ -87,6 +95,7 @@ studentRouter.get('/student/dashboard', async (req, res, next) => {
       dashboard: {
         enrollments: enrolledCourses,
         assignments: studentAssignments,
+        liveClasses,
         stats: {
           enrolledCourses: enrolledCourses.length,
           pendingAssignments: studentAssignments.filter((assignment) => !assignment.submission).length,
@@ -105,7 +114,7 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
     const database = getDatabase()
     const listing = await database.collection('listings').findOne({
       _id: listingId,
-      status: { $ne: 'removed' },
+      status: 'active',
     })
     if (!listing) {
       return res.status(404).json({ message: 'This course is no longer available.', code: 'LISTING_NOT_FOUND' })
@@ -118,12 +127,13 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
         studentUid: req.authUid,
         listingId,
         status: 'paid',
-        mode: { $in: ['demo', 'test'] },
+        gateway: { $in: ['stripe', 'bkash'] },
+        mode: { $in: ['test', 'sandbox', 'live'] },
       })
       : null
     if (Number(listing.fee) > 0 && !paidPayment) {
       return res.status(402).json({
-        message: 'Payment is required before enrolling in this course. Complete the BDT demo checkout first.',
+        message: 'Payment is required before enrolling in this course. Complete the Stripe test checkout first.',
         code: 'PAYMENT_REQUIRED',
       })
     }
@@ -131,7 +141,7 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
       if (paidPayment) {
         await enrollments.updateOne(
           { _id: existing._id },
-          { $set: { status: 'active', paymentStatus: paidPayment.mode === 'demo' ? 'demo_paid' : 'test_paid', demoPaymentId: paidPayment.demoPaymentId || null, stripeCheckoutSessionId: paidPayment.stripeCheckoutSessionId || null, updatedAt: new Date() } },
+          { $set: { status: 'active', paymentStatus: paidPayment.mode === 'test' ? 'test_paid' : paidPayment.mode === 'sandbox' ? 'sandbox_paid' : 'live_paid', paymentId: paidPayment.paymentId || null, updatedAt: new Date() } },
         )
         return res.json({ enrollment: existing, alreadyEnrolled: true })
       }
@@ -155,133 +165,28 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
       image: listing.image || '',
       status: 'active',
       ...(paidPayment ? {
-        paymentStatus: paidPayment.mode === 'demo' ? 'demo_paid' : 'test_paid',
-        demoPaymentId: paidPayment.demoPaymentId || null,
-        stripeCheckoutSessionId: paidPayment.stripeCheckoutSessionId || null,
+        paymentStatus: paidPayment.mode === 'test' ? 'test_paid' : paidPayment.mode === 'sandbox' ? 'sandbox_paid' : 'live_paid',
+        paymentId: paidPayment.paymentId || null,
       } : {}),
       enrolledAt: now,
       createdAt: now,
       updatedAt: now,
     }
     const result = await enrollments.insertOne(enrollment)
-    res.status(201).json({ enrollment: { _id: result.insertedId, ...enrollment } })
+    const notification = {
+      type: 'enrollment',
+      title: 'New student enrollment',
+      message: `${enrollment.studentName} enrolled in ${listing.name}.`,
+      relatedId: String(listingId),
+    }
+    const notificationsSent = (await Promise.all([
+      createNotifications(database, [{ uid: listing.teacherUid, role: 'teacher' }], { ...notification, href: '/dashboard/classes' }),
+      notifyAdmins(database, { ...notification, href: '/admin/classes' }),
+    ])).every(Boolean)
+    res.status(201).json({ enrollment: { _id: result.insertedId, ...enrollment }, notificationsSent })
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({ message: 'You are already enrolled in this course.', code: 'ALREADY_ENROLLED' })
-    }
-    next(error)
-  }
-})
-
-studentRouter.post('/student/payments/checkout', async (req, res, next) => {
-  try {
-    if (process.env.NODE_ENV === 'production') {
-      return res.status(503).json({
-        message: 'Local BDT demo payments are disabled in production.',
-        code: 'DEMO_PAYMENTS_DISABLED',
-      })
-    }
-
-    const listingId = parseObjectId(req.body?.listingId, 'listingId')
-    const database = getDatabase()
-    const listing = await database.collection('listings').findOne({
-      _id: listingId,
-      status: { $ne: 'removed' },
-    })
-    if (!listing) return res.status(404).json({ message: 'This course is no longer available.', code: 'LISTING_NOT_FOUND' })
-
-    const feeBdt = Number(listing.fee)
-    if (feeBdt <= 0) return res.status(400).json({ message: 'Free courses do not require checkout.', code: 'FREE_COURSE' })
-    if (!Number.isFinite(feeBdt)) return res.status(400).json({ message: 'This course has an invalid fee.', code: 'INVALID_COURSE_FEE' })
-
-    const enrollments = database.collection('studentEnrollments')
-    const existingEnrollment = await enrollments.findOne({ studentUid: req.authUid, listingId, status: 'active' })
-    const payments = database.collection('studentPayments')
-    let payment = await payments.findOne({
-      studentUid: req.authUid,
-      listingId,
-      status: 'paid',
-      mode: 'demo',
-    })
-    const now = new Date()
-    const demoPaymentId = randomUUID()
-    const paymentResult = await payments.updateOne(
-      { studentUid: req.authUid, listingId, mode: 'demo' },
-      {
-        $setOnInsert: {
-          demoPaymentId,
-          studentUid: req.authUid,
-          studentName: req.user.fullName || req.user.email,
-          studentEmail: req.user.email,
-          listingId,
-          courseName: listing.name,
-          category: listing.category,
-          teacherUid: listing.teacherUid,
-          teacherName: listing.teacherName,
-          duration: listing.duration,
-          location: listing.location,
-          image: listing.image || '',
-          amount: feeBdt,
-          currency: 'BDT',
-          status: 'paid',
-          mode: 'demo',
-          demoOnly: true,
-          paidAt: now,
-          createdAt: now,
-        },
-        $set: { updatedAt: now },
-      },
-      { upsert: true },
-    )
-    payment = await payments.findOne({ studentUid: req.authUid, listingId, mode: 'demo' })
-
-    if (!payment || payment.status !== 'paid') {
-      return res.status(409).json({ message: 'A BDT demo payment could not be confirmed. Please retry.', code: 'DEMO_PAYMENT_NOT_CONFIRMED' })
-    }
-
-    if (paymentResult.upsertedCount || payment?.status === 'paid') {
-      await enrollments.updateOne(
-        { studentUid: req.authUid, listingId },
-        {
-          $set: {
-            studentUid: req.authUid,
-            studentName: req.user.fullName || req.user.email,
-            studentEmail: req.user.email,
-            listingId,
-            name: listing.name,
-            category: listing.category,
-            teacherUid: listing.teacherUid,
-            teacherName: listing.teacherName,
-            duration: listing.duration,
-            location: listing.location,
-            fee: feeBdt,
-            image: listing.image || '',
-            status: 'active',
-            paymentStatus: 'demo_paid',
-            demoPaymentId: payment.demoPaymentId,
-            enrolledAt: existingEnrollment?.enrolledAt || now,
-            updatedAt: now,
-          },
-          $setOnInsert: { createdAt: now },
-        },
-        { upsert: true },
-      )
-    }
-
-    res.status(paymentResult.upsertedCount ? 201 : 200).json({
-      success: true,
-      alreadyPaid: paymentResult.upsertedCount === 0,
-      payment: {
-        id: payment.demoPaymentId,
-        courseName: payment.courseName,
-        amount: payment.amount,
-        currency: payment.currency,
-        mode: payment.mode,
-      },
-    })
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({ message: 'A demo payment for this course is already being recorded. Refresh your classes and try again.', code: 'PAYMENT_ALREADY_RECORDED' })
     }
     next(error)
   }
@@ -340,7 +245,16 @@ studentRouter.post('/student/assignments/:assignmentId/submissions', async (req,
       },
       { upsert: true, returnDocument: 'after' },
     )
-    res.status(201).json({ submission })
+    const notificationsSent = await createNotifications(database, [
+      { uid: assignment.teacherUid, role: 'teacher' },
+    ], {
+      type: 'submission',
+      title: 'Assignment submitted',
+      message: `${req.user.fullName || req.user.email} submitted ${assignment.title}.`,
+      href: '/dashboard/listings',
+      relatedId: String(assignmentId),
+    })
+    res.status(201).json({ submission, notificationsSent })
   } catch (error) {
     next(error)
   }
@@ -351,7 +265,7 @@ studentRouter.get('/student/payments', async (req, res, next) => {
     const database = getDatabase()
     const [enrollments, payments] = await Promise.all([
       getEligibleStudentEnrollments(database, req.authUid),
-      database.collection('studentPayments').find({ studentUid: req.authUid }).sort({ createdAt: -1 }).limit(100).toArray(),
+      database.collection('studentPayments').find({ studentUid: req.authUid, gateway: { $in: ['stripe', 'bkash'] } }).sort({ createdAt: -1 }).limit(100).toArray(),
     ])
     res.json({
       courseFees: enrollments.map((enrollment) => ({
@@ -362,7 +276,9 @@ studentRouter.get('/student/payments', async (req, res, next) => {
         enrolledAt: enrollment.enrolledAt,
       })),
       payments,
-      paidTotal: payments.filter((payment) => payment.status === 'paid')
+      paidTotal: payments.filter((payment) => payment.gateway === 'stripe' && payment.mode === 'live' && payment.status === 'paid')
+        .reduce((total, payment) => total + (Number(payment.amount) || 0), 0),
+      testTotal: payments.filter((payment) => payment.gateway === 'stripe' && payment.mode === 'test' && payment.status === 'paid')
         .reduce((total, payment) => total + (Number(payment.amount) || 0), 0),
       currency: 'BDT',
     })

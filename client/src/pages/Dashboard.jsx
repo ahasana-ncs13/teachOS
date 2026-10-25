@@ -135,7 +135,7 @@ function Dashboard() {
             <div><p className="dashboard-eyebrow">Teacher workspace</p><h1>Good morning, {teacherName}</h1><p>Here is your overview for today, {today}.</p></div>
             <a className="dashboard-secondary-button" href="#today-lessons"><FiCalendar /> Schedule</a>
           </div>
-          {dashboard?.isSample && <div className="dashboard-sample-note" role="status">You&apos;re viewing starter sample data. Attendance changes are saved to MongoDB; replace the sample class and finance records with your own data.</div>}
+          {dashboard?.isSample && <div className="dashboard-sample-note" role="status">You&apos;re viewing starter class and roster data. Payment and commission totals include only Stripe-confirmed live transactions.</div>}
           {error && <div className="dashboard-error" role="alert">{error}<button type="button" onClick={retryLoad}>Try again</button></div>}
           {notice && <div className="dashboard-success" role="status">{notice}</div>}
           {loading ? <div className="dashboard-loading" role="status">Loading your dashboard...</div> : dashboard && (
@@ -186,8 +186,8 @@ function Dashboard() {
               <div className="dashboard-secondary-column">
                 <section className="dashboard-panel earnings-panel" id="earnings">
                   <div className="dashboard-panel-heading"><h2><FiBookOpen /> Earnings</h2><span className="sample-label">{dashboard.isSample ? 'Sample' : 'Overview'}</span></div>
-                  <div className="earnings-total"><span>Total earned this month</span><strong>{formatMoney(dashboard.earnings.total, dashboard.earnings.currency)}</strong></div>
-                  <div className="earnings-detail"><span>Pending commission</span><strong>{formatMoney(dashboard.earnings.pending, dashboard.earnings.currency)}</strong></div>
+                  <div className="earnings-total"><span>Your net this month (95%)</span><strong>{formatMoney(dashboard.earnings.total, dashboard.earnings.currency)}</strong></div>
+                  <div className="earnings-detail"><span>TeachOS commission (5%)</span><strong>{formatMoney(dashboard.earnings.pending, dashboard.earnings.currency)}</strong></div>
                   <div className="earnings-detail"><span>Next payout</span><strong>{dashboard.earnings.nextPayout || 'Not scheduled'}</strong></div>
                   <h3 className="dashboard-subheading">Recent payouts</h3>
                   {dashboard.earnings.payouts.length ? dashboard.earnings.payouts.map((payout) => <div className="payout-row" key={`${payout.date}-${payout.amount}`}><span><FiCheck /> {payout.date}</span><strong>{formatMoney(payout.amount, dashboard.earnings.currency)}</strong></div>) : <p className="dashboard-empty">No payouts recorded yet.</p>}

@@ -17,6 +17,10 @@ import { platformRouter } from './routes/platform.routes.js'
 import { userRouter } from './routes/user.routes.js'
 import { listingRouter } from './routes/listing.routes.js'
 import { studentRouter } from './routes/student.routes.js'
+import { notificationRouter } from './routes/notification.routes.js'
+import { createNotifications, notifyAdmins, notifyListingStudents } from './services/notification.service.js'
+import { paymentRouter, stripeWebhookRouter } from './routes/payment.routes.js'
+import { getMonthlyCommission, getTeacherPaymentSummary } from './services/finance.service.js'
 
 const app = express()
 const port = process.env.PORT || 5000
@@ -83,10 +87,11 @@ app.use(cors({
     return callback(new Error(`Origin ${requestOrigin} is not allowed by CORS`))
   },
 }))
+app.use('/api', stripeWebhookRouter)
 app.use(express.json({ limit: '100kb' }))
 
 app.use('/api', async (request, response, next) => {
-  if (request.path === '/health' || request.path === '/courses' || request.path === '/users/me' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings') || request.path.startsWith('/student')) return next()
+  if (request.path === '/health' || request.path === '/courses' || request.path === '/users/me' || request.path === '/stripe/webhook' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings') || request.path.startsWith('/student') || request.path.startsWith('/notifications')) return next()
   const segments = request.path.split('/').filter(Boolean)
   let requestedUid
   try {
@@ -150,7 +155,7 @@ app.use('/api', async (request, response, next) => {
   }
 })
 
-const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources', 'platforms', 'auditLogs', 'listings', 'studentEnrollments', 'assignments', 'assignmentSubmissions', 'studentPayments']
+const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources', 'platforms', 'auditLogs', 'listings', 'studentEnrollments', 'assignments', 'assignmentSubmissions', 'studentPayments', 'notifications']
 
 async function ensureTeacherData(uid) {
   const database = getDatabase()
@@ -212,33 +217,44 @@ async function ensureTeacherData(uid) {
     }
   }
 
-  if (dashboard.isSample && await database.collection('payments').countDocuments({ uid }) === 0) {
-    const now = new Date()
-    await Promise.all([
-      database.collection('payments').updateOne(
-        { uid, id: 'sample-earnings' },
-        { $setOnInsert: {
-          id: 'sample-earnings', uid, description: 'Starter sample earnings', amount: dashboard.earnings.total,
-          currency: dashboard.earnings.currency, date: now.toISOString().slice(0, 10), type: 'earning',
-          status: 'recorded', isSample: true, createdAt: now,
-        } },
-        { upsert: true },
-      ),
-      database.collection('payoutRequests').updateOne(
-        { uid, id: 'sample-payout' },
-        { $setOnInsert: {
-          id: 'sample-payout', uid, amount: dashboard.earnings.payouts[0]?.amount || 0,
-          method: 'bank', accountLast4: '4921', status: 'paid', isSample: true, createdAt: now,
-        } },
-        { upsert: true },
-      ),
-    ])
-  }
   return { dashboard, classList }
 }
 
 function validUid(uid) {
   return typeof uid === 'string' && uid.length > 0 && uid.length <= 256
+}
+
+async function validateClassMeeting(database, uid, values) {
+  const classType = values.classType || 'in_person'
+  if (!['in_person', 'live'].includes(classType)) {
+    return { error: 'Choose an in-person class or a Google Meet live class.' }
+  }
+  if (classType === 'in_person') {
+    return { classType, listingId: null, meetUrl: '', classDate: '' }
+  }
+
+  const listingId = typeof values.listingId === 'string' ? values.listingId.trim() : ''
+  const meetUrl = typeof values.meetUrl === 'string' ? values.meetUrl.trim() : ''
+  const classDate = typeof values.classDate === 'string' ? values.classDate.trim() : ''
+  if (!ObjectId.isValid(listingId)) return { error: 'Select one of your courses to notify enrolled students.' }
+  if (!/^https:\/\/meet\.google\.com\/[a-z0-9-]+(?:\?.*)?$/i.test(meetUrl) || meetUrl.length > 2048) {
+    return { error: 'Enter a valid Google Meet link (https://meet.google.com/...).' }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(classDate) || Number.isNaN(Date.parse(`${classDate}T00:00:00Z`))) {
+    return { error: 'Choose a valid date for the live class.' }
+  }
+
+  const ownerUids = [uid]
+  if (process.env.NODE_ENV !== 'production' && uid.startsWith('demo-')) {
+    ownerUids.push(`demo-teacher:${uid.slice('demo-'.length)}`)
+  }
+  const listing = await database.collection('listings').findOne({
+    _id: new ObjectId(listingId),
+    teacherUid: { $in: ownerUids },
+    status: 'active',
+  })
+  if (!listing) return { error: 'Select a course that belongs to your teacher account.' }
+  return { classType, listingId: String(listing._id), meetUrl, classDate, listing }
 }
 
 app.post('/api/users', async (request, response) => {
@@ -302,16 +318,11 @@ app.get('/api/dashboard/:uid', async (request, response) => {
     const { dashboard, classList } = await ensureTeacherData(uid)
     const classes = classList.map(({ _id, uid: _uid, createdAt, updatedAt, ...item }) => item)
     const db = getDatabase()
-    const [studentCount, earnings, pendingPayouts] = await Promise.all([
+    const [studentCount, finance, payoutRecords] = await Promise.all([
       db.collection('students').countDocuments({ uid }),
-      db.collection('payments').aggregate([
-        { $match: { uid, type: 'earning' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]).toArray(),
-      db.collection('payoutRequests').aggregate([
-        { $match: { uid, status: 'pending' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]).toArray(),
+      getTeacherPaymentSummary(db, uid),
+      db.collection('payoutRequests').find({ uid, status: 'paid', isSample: { $ne: true } })
+        .sort({ createdAt: -1 }).limit(5).toArray(),
     ])
     const { _id, uid: _uid, ...dashboardData } = dashboard
     response.json({
@@ -319,9 +330,14 @@ app.get('/api/dashboard/:uid', async (request, response) => {
         ...dashboardData,
         classes,
         earnings: {
-          ...dashboardData.earnings,
-          total: earnings[0]?.total || 0,
-          pending: pendingPayouts[0]?.total || 0,
+          total: finance.monthly.netAmount,
+          pending: finance.monthly.commissionAmount,
+          currency: 'BDT',
+          nextPayout: '',
+          payouts: payoutRecords.map((payout) => ({
+            date: payout.createdAt?.toISOString?.().slice(0, 10) || '',
+            amount: Number(payout.amount) || 0,
+          })),
         },
         roster: {
           totalStudents: studentCount,
@@ -422,16 +438,36 @@ app.post('/api/classes/:uid', async (request, response) => {
     return response.status(400).json({ message: 'Provide valid schedule, times, location, department, and status values' })
   }
   try {
+    const database = getDatabase()
+    const meeting = await validateClassMeeting(database, uid, request.body || {})
+    if (meeting.error) return response.status(400).json({ message: meeting.error })
     const now = new Date()
     const record = {
       id: randomUUID(), uid, title: title.trim(), schedule: schedule.trim(), startTime: startTime.trim(),
       endTime: endTime.trim(), time: startTime.trim(), period: '', location: location.trim(),
       department: department.trim(), status: status || 'active', enrolled: 0, students: [],
-      isSample: false, createdAt: now, updatedAt: now,
+      teacherUid: meeting.listing?.teacherUid || uid,
+      ...meeting, isSample: false, createdAt: now, updatedAt: now,
     }
-    await getDatabase().collection('classes').insertOne(record)
+    delete record.listing
+    await database.collection('classes').insertOne(record)
+    let notificationsSent = true
+    if (record.classType === 'live') {
+      const notification = {
+        type: 'live_class',
+        title: 'Google Meet class scheduled',
+        message: `${record.title} · ${record.classDate} at ${record.startTime}`,
+        relatedId: record.id,
+      }
+      const results = await Promise.all([
+        createNotifications(database, [{ uid: record.teacherUid, role: 'teacher' }], { ...notification, href: '/dashboard/classes' }),
+        notifyListingStudents(database, new ObjectId(record.listingId), { ...notification, href: '/student/classes' }),
+        notifyAdmins(database, { ...notification, message: `${request.body?.teacherName || 'A teacher'} scheduled ${record.title}.`, href: '/admin/classes' }),
+      ])
+      notificationsSent = results.every(Boolean)
+    }
     const { _id, ...savedClass } = record
-    response.status(201).json({ class: savedClass })
+    response.status(201).json({ class: savedClass, notificationsSent })
   } catch (error) {
     console.error('Unable to create class:', error.message)
     response.status(500).json({ message: 'Unable to create class' })
@@ -441,25 +477,47 @@ app.post('/api/classes/:uid', async (request, response) => {
 app.put('/api/classes/:uid/:classId', async (request, response) => {
   if (!databaseReady) return response.status(503).json({ message: 'Database is still starting. Please try again in a moment.' })
   const { uid, classId } = request.params
-  const fields = ['title', 'schedule', 'startTime', 'endTime', 'location', 'department', 'status']
+  const fields = ['title', 'schedule', 'startTime', 'endTime', 'location', 'department', 'status', 'classType', 'listingId', 'meetUrl', 'classDate']
   const updates = request.body || {}
   if (!validUid(uid) || !classId || classId.length > 256 || !Object.keys(updates).length ||
       Object.keys(updates).some((field) => !fields.includes(field))) {
     return response.status(400).json({ message: 'Provide a class ID and valid fields to update' })
   }
-  if (Object.entries(updates).some(([, value]) => typeof value !== 'string' || !value.trim() || value.length > 120) ||
+  if (Object.entries(updates).some(([field, value]) => typeof value !== 'string' || (['title', 'schedule', 'startTime', 'endTime', 'location', 'department', 'status'].includes(field) && !value.trim()) || value.length > (field === 'meetUrl' ? 2048 : 120)) ||
       (updates.status && !['active', 'upcoming', 'completed'].includes(updates.status))) {
     return response.status(400).json({ message: 'Class fields must contain valid text and status values' })
   }
   try {
+    const database = getDatabase()
+    const existing = await database.collection('classes').findOne({ uid, id: classId })
+    if (!existing) return response.status(404).json({ message: 'Class not found' })
     const normalized = Object.fromEntries(Object.entries(updates).map(([field, value]) => [field, value.trim()]))
-    const result = await getDatabase().collection('classes').findOneAndUpdate(
+    const merged = { ...existing, ...normalized }
+    const meeting = await validateClassMeeting(database, uid, merged)
+    if (meeting.error) return response.status(400).json({ message: meeting.error })
+    delete meeting.listing
+    const updatedAt = new Date()
+    const result = await database.collection('classes').findOneAndUpdate(
       { uid, id: classId },
-      { $set: { ...normalized, updatedAt: new Date() } },
+      { $set: { ...normalized, ...meeting, updatedAt } },
       { returnDocument: 'after', projection: { _id: 0, uid: 0 } },
     )
-    if (!result) return response.status(404).json({ message: 'Class not found' })
-    response.json({ class: result })
+    let notificationsSent = true
+    if (result.classType === 'live' && result.status !== 'completed') {
+      const notification = {
+        type: 'live_class',
+        title: 'Google Meet class updated',
+        message: `${result.title} · ${result.classDate} at ${result.startTime}`,
+        relatedId: result.id,
+      }
+      const results = await Promise.all([
+        createNotifications(database, [{ uid: result.teacherUid || meeting.listing?.teacherUid || uid, role: 'teacher' }], { ...notification, href: '/dashboard/classes' }),
+        notifyListingStudents(database, new ObjectId(result.listingId), { ...notification, href: '/student/classes' }),
+        notifyAdmins(database, { ...notification, message: `${result.title} live class was updated.`, href: '/admin/classes' }),
+      ])
+      notificationsSent = results.every(Boolean)
+    }
+    response.json({ class: result, notificationsSent })
   } catch (error) {
     console.error('Unable to update class:', error.message)
     response.status(500).json({ message: 'Unable to update class' })
@@ -543,19 +601,21 @@ app.get('/api/payments/:uid', async (request, response) => {
   if (!validUid(uid)) return response.status(400).json({ message: 'A valid user ID is required' })
   try {
     const db = getDatabase()
-    await ensureTeacherData(uid)
-    const [payments, payoutRequests] = await Promise.all([
-      db.collection('payments').find({ uid }).sort({ createdAt: -1 }).limit(100).toArray(),
-      db.collection('payoutRequests').find({ uid }).sort({ createdAt: -1 }).limit(100).toArray(),
+    const [finance, payoutRequests] = await Promise.all([
+      getTeacherPaymentSummary(db, uid, request.query.month),
+      db.collection('payoutRequests').find({ uid, isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
     ])
-    const earnings = payments.filter((item) => item.type === 'earning').reduce((total, item) => total + item.amount, 0)
     const paidOut = payoutRequests.filter((item) => item.status !== 'rejected').reduce((total, item) => total + item.amount, 0)
     response.json({
-      earnings, available: Math.max(0, earnings - paidOut),
-      payments: payments.map(({ _id, uid: _uid, ...item }) => item),
+      earnings: finance.allTimeNetAmount,
+      available: Math.max(0, finance.allTimeNetAmount - paidOut),
+      month: finance.month,
+      monthly: finance.monthly,
+      commissionRate: finance.commissionRate,
+      payments: finance.payments,
       payoutRequests: payoutRequests.map(({ _id, uid: _uid, ...item }) => item),
-      currency: payments[0]?.currency || 'BDT',
-      hasSample: payments.some((item) => item.isSample) || payoutRequests.some((item) => item.isSample),
+      currency: 'BDT',
+      hasSample: false,
     })
   } catch (error) {
     console.error('Unable to load payments:', error.message)
@@ -564,33 +624,7 @@ app.get('/api/payments/:uid', async (request, response) => {
 })
 
 app.post('/api/payments/:uid', async (request, response) => {
-  if (!databaseReady) return response.status(503).json({ message: 'Database is still starting. Please try again in a moment.' })
-  const { uid } = request.params
-  const { description, amount, classId, date, currency = 'BDT' } = request.body || {}
-  if (!validUid(uid) || typeof description !== 'string' || !description.trim() || description.trim().length > 160 ||
-      !Number.isFinite(amount) || amount <= 0 || amount > 10000000 ||
-      (classId !== undefined && (typeof classId !== 'string' || classId.length > 256)) ||
-      (date !== undefined && (typeof date !== 'string' || Number.isNaN(Date.parse(date)))) ||
-      typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
-    return response.status(400).json({ message: 'Provide a description, positive amount, valid date, and three-letter currency code' })
-  }
-  try {
-    if (classId) {
-      const { classList } = await ensureTeacherData(uid)
-      if (!classList.some((item) => item.id === classId)) return response.status(404).json({ message: 'Class not found' })
-    }
-    const now = new Date()
-    const payments = getDatabase().collection('payments')
-    const conflictingCurrency = await payments.findOne({ uid, currency: { $ne: currency } })
-    if (conflictingCurrency) return response.status(400).json({ message: `Use ${conflictingCurrency.currency} for all payment records in this account` })
-    const record = { id: randomUUID(), uid, description: description.trim(), amount, classId: classId || null, date: date || now.toISOString().slice(0, 10), currency, type: 'earning', status: 'recorded', isSample: false, createdAt: now }
-    await payments.insertOne(record)
-    const { _id, uid: _uid, ...savedPayment } = record
-    response.status(201).json({ payment: savedPayment })
-  } catch (error) {
-    console.error('Unable to save payment:', error.message)
-    response.status(500).json({ message: 'Unable to save payment' })
-  }
+  response.status(410).json({ message: 'Payments can only be recorded after Stripe confirms the test transaction.', code: 'MANUAL_PAYMENT_RECORDING_DISABLED' })
 })
 
 app.post('/api/payments/:uid/payout-requests', async (request, response) => {
@@ -605,13 +639,18 @@ app.post('/api/payments/:uid/payout-requests', async (request, response) => {
   try {
     const db = getDatabase()
     const [earned, requested] = await Promise.all([
-      db.collection('payments').aggregate([{ $match: { uid, type: 'earning' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]).toArray(),
-      db.collection('payoutRequests').aggregate([{ $match: { uid, status: { $ne: 'rejected' } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]).toArray(),
+      db.collection('studentPayments').aggregate([
+        { $match: { teacherUid: uid, gateway: 'stripe', mode: 'live', status: 'paid', currency: 'BDT' } },
+        { $group: { _id: null, total: { $sum: '$teacherNetAmount' } } },
+      ]).toArray(),
+      db.collection('payoutRequests').aggregate([
+        { $match: { uid, status: { $ne: 'rejected' }, isSample: { $ne: true } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]).toArray(),
     ])
     const available = (earned[0]?.total || 0) - (requested[0]?.total || 0)
     if (amount > available) return response.status(400).json({ message: 'Payout amount exceeds your recorded available balance' })
-    const latestPayment = await db.collection('payments').findOne({ uid, type: 'earning' }, { sort: { createdAt: -1 } })
-    const record = { id: randomUUID(), uid, amount, currency: latestPayment?.currency || 'BDT', method, accountLast4, status: 'pending', createdAt: new Date() }
+    const record = { id: randomUUID(), uid, amount, currency: 'BDT', method, accountLast4, status: 'pending', createdAt: new Date() }
     await db.collection('payoutRequests').insertOne(record)
     const { _id, uid: _uid, ...payoutRequest } = record
     response.status(201).json({ payoutRequest })
@@ -803,7 +842,9 @@ app.get('/api/courses', (_request, response) => {
 })
 
 app.use('/api', listingRouter)
+app.use('/api', paymentRouter)
 app.use('/api', studentRouter)
+app.use('/api/notifications', notificationRouter)
 app.use('/api', platformRouter)
 app.use('/api', userRouter)
 
@@ -841,10 +882,21 @@ connectDatabase()
      database.collection('assignments').createIndex({ listingId: 1, dueDate: 1 }),
      database.collection('assignmentSubmissions').createIndex({ assignmentId: 1, studentUid: 1 }, { unique: true }),
      database.collection('studentPayments').createIndex({ studentUid: 1, createdAt: -1 }),
+     database.collection('studentPayments').createIndex({ gateway: 1, mode: 1, status: 1, currency: 1, paidAt: -1 }),
+     database.collection('studentPayments').createIndex({ teacherUid: 1, gateway: 1, mode: 1, status: 1, paidAt: -1 }),
      database.collection('studentPayments').createIndex(
-       { studentUid: 1, listingId: 1, mode: 1 },
-       { unique: true, partialFilterExpression: { mode: 'demo' } },
+       { paymentId: 1 },
+       { unique: true, partialFilterExpression: { paymentId: { $exists: true } } },
      ),
+     database.collection('studentPayments').createIndex(
+       { gateway: 1, providerPaymentId: 1 },
+       { unique: true, partialFilterExpression: { providerPaymentId: { $exists: true } } },
+     ),
+     database.collection('studentPayments').createIndex(
+       { gateway: 1, providerTransactionId: 1 },
+       { unique: true, partialFilterExpression: { providerTransactionId: { $exists: true } } },
+     ),
+     database.collection('notifications').createIndex({ uid: 1, role: 1, createdAt: -1 }),
      ...['messages', 'officeHours', 'resources'].map((name) => database.collection(name).createIndex({ uid: 1, createdAt: -1 })),
    ])
    databaseReady = true
