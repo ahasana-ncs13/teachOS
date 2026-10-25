@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getApps, initializeApp } from 'firebase/app'
-import { browserLocalPersistence, browserSessionPersistence, createUserWithEmailAndPassword, getAuth, GoogleAuthProvider, onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signInWithPopup, signOut as firebaseSignOut, updateProfile } from 'firebase/auth'
+import { browserLocalPersistence, browserSessionPersistence, createUserWithEmailAndPassword, getAuth, GoogleAuthProvider, onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup, signOut as firebaseSignOut, updateProfile } from 'firebase/auth'
 import { AuthContext } from './authContext.js'
 import { api, setAuthTokenProvider } from '../lib/api.js'
 
@@ -70,6 +70,14 @@ export function AuthProvider({ children }) {
     setUser(signedInUser)
     return signedInUser
   }
+  const sendPasswordReset = async (email) => {
+    if (!auth) {
+      const error = new Error('Password reset is unavailable in demo mode.')
+      error.code = 'auth/demo-mode'
+      throw error
+    }
+    await sendPasswordResetEmail(auth, email)
+  }
   const signUp = async (email, password, profile = {}) => {
     if (!auth) {
       currentDemoToken = `demo-${email}`
@@ -88,7 +96,7 @@ export function AuthProvider({ children }) {
     currentDemoToken = null
     return auth ? firebaseSignOut(auth) : Promise.resolve(setUser(null))
   }
-  return <AuthContext.Provider value={{ user, signIn, signInWithProvider, signUp, signOut, isConfigured, authLoading }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, signIn, signInWithProvider, sendPasswordReset, signUp, signOut, isConfigured, authLoading }}>{children}</AuthContext.Provider>
 }
 
 async function saveUser(firebaseUser, profile = {}) {
