@@ -3,6 +3,7 @@ import { useAuth } from './context/useAuth'
 import Dashboard from './pages/Dashboard'
 import { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage, TeacherListingsPage } from './pages/WorkspacePages'
 import Home from './pages/Home'
+import LegalPage from './pages/LegalPage'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import './App.css'
@@ -23,6 +24,8 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/terms-of-service" element={<LegalPage document="terms" />} />
+        <Route path="/privacy-policy" element={<LegalPage document="privacy" />} />
         <Route path="/dashboard" element={<ProtectedRoute role="teacher"><Dashboard /></ProtectedRoute>} />
         <Route path="/student" element={<ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>} />
         <Route path="/student/classes" element={<ProtectedRoute role="student"><StudentClasses /></ProtectedRoute>} />
