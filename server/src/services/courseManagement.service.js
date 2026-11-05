@@ -1,0 +1,493 @@
+import { getDatabase } from '../db.js'
+import { parseObjectId } from '../utils/validation.js'
+import { writeAuditLog } from './audit.service.js'
+
+const MODULES_COLLECTION = 'courseModules'
+const LESSONS_COLLECTION = 'courseLessons'
+const LIVE_SESSIONS_COLLECTION = 'liveSessions'
+const SESSION_ATTENDANCE_COLLECTION = 'sessionAttendance'
+
+function listingOwnershipFilter(req, listingId) {
+  const objectId = parseObjectId(listingId, 'listingId')
+  if (req.user.role === 'admin') return { _id: objectId, status: { $ne: 'removed' } }
+  return { _id: objectId, teacherUid: req.user.uid, status: { $ne: 'removed' } }
+}
+
+async function requireOwnedListing(req, listingId) {
+  const database = getDatabase()
+  const listing = await database.collection('listings').findOne(listingOwnershipFilter(req, listingId))
+  if (!listing) {
+    const error = new Error('Course not found or you do not own it.')
+    error.status = 404
+    error.code = 'COURSE_NOT_FOUND'
+    throw error
+  }
+  return listing
+}
+
+/* ── Modules ── */
+
+export async function listModules({ req, listingId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const objectId = parseObjectId(listingId, 'listingId')
+  return database.collection(MODULES_COLLECTION)
+    .find({ listingId: objectId, status: { $ne: 'removed' } })
+    .sort({ order: 1, createdAt: 1 })
+    .toArray()
+}
+
+export async function createModule({ req, listingId, data }) {
+  const listing = await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const objectId = parseObjectId(listingId, 'listingId')
+  const now = new Date()
+  const last = await database.collection(MODULES_COLLECTION)
+    .findOne({ listingId: objectId, status: { $ne: 'removed' } }, { sort: { order: -1 } })
+  const nextOrder = (last ? last.order : 0) + 1
+  const moduleDoc = {
+    listingId: objectId,
+    teacherUid: req.user.uid,
+    name: data.name.trim(),
+    description: (data.description || '').trim(),
+    order: nextOrder,
+    status: data.status || 'active',
+    createdAt: now,
+    updatedAt: now,
+  }
+  const result = await database.collection(MODULES_COLLECTION).insertOne(moduleDoc)
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'CREATE_COURSE_MODULE',
+    targetType: 'courseModule',
+    targetId: result.insertedId,
+    meta: { listingId, name: moduleDoc.name },
+  })
+  return { _id: result.insertedId, ...moduleDoc }
+}
+
+export async function updateModule({ req, listingId, moduleId, data }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const moduleObjectId = parseObjectId(moduleId, 'moduleId')
+  const existing = await database.collection(MODULES_COLLECTION).findOne({ _id: moduleObjectId, listingId: parseObjectId(listingId, 'listingId') })
+  if (!existing) {
+    const error = new Error('Module not found.')
+    error.status = 404
+    error.code = 'MODULE_NOT_FOUND'
+    throw error
+  }
+  const updates = {}
+  const now = new Date()
+  if (data.name !== undefined) updates.name = data.name.trim()
+  if (data.description !== undefined) updates.description = data.description.trim()
+  if (data.status !== undefined) updates.status = data.status
+  if (data.order !== undefined) updates.order = Number(data.order)
+  updates.updatedAt = now
+  const result = await database.collection(MODULES_COLLECTION).findOneAndUpdate(
+    { _id: moduleObjectId },
+    { $set: updates },
+    { returnDocument: 'after' },
+  )
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'UPDATE_COURSE_MODULE',
+    targetType: 'courseModule',
+    targetId: moduleObjectId,
+    meta: { listingId, updatedFields: Object.keys(updates) },
+  })
+  return result
+}
+
+export async function deleteModule({ req, listingId, moduleId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const moduleObjectId = parseObjectId(moduleId, 'moduleId')
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const existing = await database.collection(MODULES_COLLECTION).findOne({ _id: moduleObjectId, listingId: listingObjectId })
+  if (!existing) {
+    const error = new Error('Module not found.')
+    error.status = 404
+    error.code = 'MODULE_NOT_FOUND'
+    throw error
+  }
+  const now = new Date()
+  await database.collection(MODULES_COLLECTION).updateOne({ _id: moduleObjectId }, { $set: { status: 'removed', removedAt: now, removedBy: req.authUid, updatedAt: now } })
+  await database.collection(LESSONS_COLLECTION).updateMany(
+    { moduleId: moduleObjectId },
+    { $set: { status: 'removed', removedAt: now, removedBy: req.authUid, updatedAt: now } },
+  )
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'DELETE_COURSE_MODULE',
+    targetType: 'courseModule',
+    targetId: moduleObjectId,
+    meta: { listingId, name: existing.name },
+  })
+  return { message: 'Module and its lessons removed.', id: moduleId }
+}
+
+/* ── Lessons ── */
+
+export async function listLessons({ req, listingId, moduleId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const filter = { listingId: listingObjectId, status: { $ne: 'removed' } }
+  if (moduleId) filter.moduleId = parseObjectId(moduleId, 'moduleId')
+  return database.collection(LESSONS_COLLECTION)
+    .find(filter)
+    .sort({ lessonNumber: 1, createdAt: 1 })
+    .toArray()
+}
+
+export async function createLesson({ req, listingId, data }) {
+  const listing = await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const now = new Date()
+  const moduleObjectId = data.moduleId ? parseObjectId(data.moduleId, 'moduleId') : null
+  const last = await database.collection(LESSONS_COLLECTION)
+    .findOne({ listingId: listingObjectId, status: { $ne: 'removed' } }, { sort: { lessonNumber: -1 } })
+  const nextNumber = (last ? last.lessonNumber : 0) + 1
+  const lessonDoc = {
+    listingId: listingObjectId,
+    moduleId: moduleObjectId,
+    teacherUid: req.user.uid,
+    title: data.title.trim(),
+    description: (data.description || '').trim(),
+    source: data.source || 'direct',
+    videoUrl: (data.videoUrl || '').trim() || null,
+    fileId: data.fileId || null,
+    thumbnailUrl: (data.thumbnailUrl || '').trim() || null,
+    duration: (data.duration || '').trim() || null,
+    lessonNumber: data.lessonNumber !== undefined ? Number(data.lessonNumber) : nextNumber,
+    isFreePreview: Boolean(data.isFreePreview),
+    isLockedAfterCompletion: Boolean(data.isLockedAfterCompletion),
+    lectureNotesUrl: (data.lectureNotesUrl || '').trim() || null,
+    views: 0,
+    published: Boolean(data.published),
+    publishedAt: data.published ? now : null,
+    createdAt: now,
+    updatedAt: now,
+  }
+  const result = await database.collection(LESSONS_COLLECTION).insertOne(lessonDoc)
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'CREATE_COURSE_LESSON',
+    targetType: 'courseLesson',
+    targetId: result.insertedId,
+    meta: { listingId, moduleId: data.moduleId, title: lessonDoc.title },
+  })
+  return { _id: result.insertedId, ...lessonDoc }
+}
+
+export async function updateLesson({ req, listingId, lessonId, data }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const lessonObjectId = parseObjectId(lessonId, 'lessonId')
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const existing = await database.collection(LESSONS_COLLECTION).findOne({ _id: lessonObjectId, listingId: listingObjectId })
+  if (!existing) {
+    const error = new Error('Lesson not found.')
+    error.status = 404
+    error.code = 'LESSON_NOT_FOUND'
+    throw error
+  }
+  const updates = {}
+  const now = new Date()
+  if (data.title !== undefined) updates.title = data.title.trim()
+  if (data.description !== undefined) updates.description = data.description.trim()
+  if (data.source !== undefined) updates.source = data.source
+  if (data.videoUrl !== undefined) updates.videoUrl = data.videoUrl ? data.videoUrl.trim() : null
+  if (data.fileId !== undefined) updates.fileId = data.fileId || null
+  if (data.thumbnailUrl !== undefined) updates.thumbnailUrl = data.thumbnailUrl ? data.thumbnailUrl.trim() : null
+  if (data.duration !== undefined) updates.duration = data.duration ? data.duration.trim() : null
+  if (data.lessonNumber !== undefined) updates.lessonNumber = Number(data.lessonNumber)
+  if (data.isFreePreview !== undefined) updates.isFreePreview = Boolean(data.isFreePreview)
+  if (data.isLockedAfterCompletion !== undefined) updates.isLockedAfterCompletion = Boolean(data.isLockedAfterCompletion)
+  if (data.lectureNotesUrl !== undefined) updates.lectureNotesUrl = data.lectureNotesUrl ? data.lectureNotesUrl.trim() : null
+  if (data.moduleId !== undefined) updates.moduleId = data.moduleId ? parseObjectId(data.moduleId, 'moduleId') : null
+  if (data.published !== undefined) {
+    updates.published = Boolean(data.published)
+    updates.publishedAt = data.published && !existing.published ? now : (data.published ? existing.publishedAt : null)
+  }
+  updates.updatedAt = now
+  const result = await database.collection(LESSONS_COLLECTION).findOneAndUpdate(
+    { _id: lessonObjectId },
+    { $set: updates },
+    { returnDocument: 'after' },
+  )
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'UPDATE_COURSE_LESSON',
+    targetType: 'courseLesson',
+    targetId: lessonObjectId,
+    meta: { listingId, updatedFields: Object.keys(updates) },
+  })
+  return result
+}
+
+export async function deleteLesson({ req, listingId, lessonId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const lessonObjectId = parseObjectId(lessonId, 'lessonId')
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const existing = await database.collection(LESSONS_COLLECTION).findOne({ _id: lessonObjectId, listingId: listingObjectId })
+  if (!existing) {
+    const error = new Error('Lesson not found.')
+    error.status = 404
+    error.code = 'LESSON_NOT_FOUND'
+    throw error
+  }
+  const now = new Date()
+  await database.collection(LESSONS_COLLECTION).updateOne({ _id: lessonObjectId }, { $set: { status: 'removed', removedAt: now, removedBy: req.authUid, updatedAt: now } })
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'DELETE_COURSE_LESSON',
+    targetType: 'courseLesson',
+    targetId: lessonObjectId,
+    meta: { listingId, title: existing.title },
+  })
+  return { message: 'Lesson removed.', id: lessonId }
+}
+
+/* ── Live Sessions ── */
+
+export async function listLiveSessions({ req, listingId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  return database.collection(LIVE_SESSIONS_COLLECTION)
+    .find({ listingId: listingObjectId, status: { $ne: 'removed' } })
+    .sort({ scheduledAt: 1, createdAt: -1 })
+    .toArray()
+}
+
+export async function createLiveSession({ req, listingId, data }) {
+  const listing = await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const now = new Date()
+  const scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null
+  const sessionDoc = {
+    listingId: listingObjectId,
+    teacherUid: req.user.uid,
+    title: data.title.trim(),
+    meetLink: (data.meetLink || '').trim() || null,
+    meetId: (data.meetId || '').trim() || null,
+    status: data.status || 'scheduled',
+    scheduledAt,
+    startedAt: data.startedAt ? new Date(data.startedAt) : null,
+    endedAt: data.endedAt ? new Date(data.endedAt) : null,
+    targetBatch: (data.targetBatch || '').trim() || null,
+    autoAttendance: Boolean(data.autoAttendance),
+    autoRecording: Boolean(data.autoRecording),
+    notifyStudents: Boolean(data.notifyStudents),
+    rtmpRelay: Boolean(data.rtmpRelay),
+    createdAt: now,
+    updatedAt: now,
+  }
+  const result = await database.collection(LIVE_SESSIONS_COLLECTION).insertOne(sessionDoc)
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'CREATE_LIVE_SESSION',
+    targetType: 'liveSession',
+    targetId: result.insertedId,
+    meta: { listingId, title: sessionDoc.title, status: sessionDoc.status },
+  })
+  return { _id: result.insertedId, ...sessionDoc }
+}
+
+export async function updateLiveSession({ req, listingId, sessionId, data }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const sessionObjectId = parseObjectId(sessionId, 'sessionId')
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const existing = await database.collection(LIVE_SESSIONS_COLLECTION).findOne({ _id: sessionObjectId, listingId: listingObjectId })
+  if (!existing) {
+    const error = new Error('Live session not found.')
+    error.status = 404
+    error.code = 'LIVE_SESSION_NOT_FOUND'
+    throw error
+  }
+  const updates = {}
+  const now = new Date()
+  if (data.title !== undefined) updates.title = data.title.trim()
+  if (data.meetLink !== undefined) updates.meetLink = data.meetLink ? data.meetLink.trim() : null
+  if (data.meetId !== undefined) updates.meetId = data.meetId ? data.meetId.trim() : null
+  if (data.status !== undefined) updates.status = data.status
+  if (data.scheduledAt !== undefined) updates.scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null
+  if (data.startedAt !== undefined) updates.startedAt = data.startedAt ? new Date(data.startedAt) : null
+  if (data.endedAt !== undefined) updates.endedAt = data.endedAt ? new Date(data.endedAt) : null
+  if (data.targetBatch !== undefined) updates.targetBatch = data.targetBatch ? data.targetBatch.trim() : null
+  if (data.autoAttendance !== undefined) updates.autoAttendance = Boolean(data.autoAttendance)
+  if (data.autoRecording !== undefined) updates.autoRecording = Boolean(data.autoRecording)
+  if (data.notifyStudents !== undefined) updates.notifyStudents = Boolean(data.notifyStudents)
+  if (data.rtmpRelay !== undefined) updates.rtmpRelay = Boolean(data.rtmpRelay)
+  updates.updatedAt = now
+  const result = await database.collection(LIVE_SESSIONS_COLLECTION).findOneAndUpdate(
+    { _id: sessionObjectId },
+    { $set: updates },
+    { returnDocument: 'after' },
+  )
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'UPDATE_LIVE_SESSION',
+    targetType: 'liveSession',
+    targetId: sessionObjectId,
+    meta: { listingId, updatedFields: Object.keys(updates) },
+  })
+  return result
+}
+
+export async function deleteLiveSession({ req, listingId, sessionId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const sessionObjectId = parseObjectId(sessionId, 'sessionId')
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const existing = await database.collection(LIVE_SESSIONS_COLLECTION).findOne({ _id: sessionObjectId, listingId: listingObjectId })
+  if (!existing) {
+    const error = new Error('Live session not found.')
+    error.status = 404
+    error.code = 'LIVE_SESSION_NOT_FOUND'
+    throw error
+  }
+  const now = new Date()
+  await database.collection(LIVE_SESSIONS_COLLECTION).updateOne({ _id: sessionObjectId }, { $set: { status: 'removed', removedAt: now, removedBy: req.authUid, updatedAt: now } })
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'DELETE_LIVE_SESSION',
+    targetType: 'liveSession',
+    targetId: sessionObjectId,
+    meta: { listingId, title: existing.title },
+  })
+  return { message: 'Live session removed.', id: sessionId }
+}
+
+/* ── Session Attendance ── */
+
+export async function listSessionAttendance({ req, listingId, sessionId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const filter = { listingId: listingObjectId }
+  if (sessionId) filter.sessionId = parseObjectId(sessionId, 'sessionId')
+  return database.collection(SESSION_ATTENDANCE_COLLECTION)
+    .find(filter)
+    .sort({ joinedAt: -1 })
+    .toArray()
+}
+
+export async function recordSessionAttendance({ req, listingId, sessionId, data }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const sessionObjectId = parseObjectId(sessionId, 'sessionId')
+  const now = new Date()
+  const records = []
+  for (const item of data.records) {
+    records.push({
+      listingId: listingObjectId,
+      sessionId: sessionObjectId,
+      studentUid: item.studentUid,
+      studentName: item.studentName,
+      status: item.status,
+      joinedAt: item.joinedAt ? new Date(item.joinedAt) : now,
+      leftAt: item.leftAt ? new Date(item.leftAt) : null,
+      durationMinutes: item.durationMinutes || 0,
+      createdAt: now,
+    })
+  }
+  if (records.length) {
+    await database.collection(SESSION_ATTENDANCE_COLLECTION).insertMany(records)
+  }
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'RECORD_SESSION_ATTENDANCE',
+    targetType: 'liveSession',
+    targetId: sessionObjectId,
+    meta: { listingId, recordCount: records.length },
+  })
+  return { message: 'Attendance recorded.', count: records.length }
+}
+
+export async function exportSessionAttendanceCSV({ req, listingId, sessionId }) {
+  await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const filter = { listingId: listingObjectId }
+  if (sessionId) filter.sessionId = parseObjectId(sessionId, 'sessionId')
+  const records = await database.collection(SESSION_ATTENDANCE_COLLECTION)
+    .find(filter)
+    .sort({ joinedAt: -1 })
+    .toArray()
+  const headers = ['Student UID', 'Student Name', 'Status', 'Joined At', 'Left At', 'Duration (min)', 'Recorded At']
+  const rows = records.map((r) => [
+    r.studentUid,
+    r.studentName,
+    r.status,
+    r.joinedAt ? r.joinedAt.toISOString() : '',
+    r.leftAt ? r.leftAt.toISOString() : '',
+    r.durationMinutes || 0,
+    r.createdAt ? r.createdAt.toISOString() : '',
+  ])
+  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\r\n')
+  return csv
+}
+
+/* ── Course Publishing ── */
+
+export async function publishCourse({ req, listingId }) {
+  const listing = await requireOwnedListing(req, listingId)
+  const database = getDatabase()
+  const listingObjectId = parseObjectId(listingId, 'listingId')
+  const [modules, lessons] = await Promise.all([
+    database.collection(MODULES_COLLECTION).find({ listingId: listingObjectId, status: { $ne: 'removed' } }).toArray(),
+    database.collection(LESSONS_COLLECTION).find({ listingId: listingObjectId, status: { $ne: 'removed' } }).toArray(),
+  ])
+  if (!listing.name || listing.name.trim().length < 3) {
+    const error = new Error('Course name is required.')
+    error.status = 400
+    error.code = 'INVALID_COURSE'
+    throw error
+  }
+  if (!modules.length) {
+    const error = new Error('Add at least one module before publishing.')
+    error.status = 400
+    error.code = 'NO_MODULES'
+    throw error
+  }
+  if (!lessons.length) {
+    const error = new Error('Add at least one lesson before publishing.')
+    error.status = 400
+    error.code = 'NO_LESSONS'
+    throw error
+  }
+  const now = new Date()
+  await database.collection('listings').updateOne(
+    { _id: listingObjectId },
+    { $set: { status: 'active', publishedAt: now, updatedAt: now } },
+  )
+  await writeAuditLog({
+    actorUid: req.authUid,
+    actorRole: req.user.role,
+    action: 'PUBLISH_COURSE',
+    targetType: 'listing',
+    targetId: listingObjectId,
+    meta: { name: listing.name, moduleCount: modules.length, lessonCount: lessons.length },
+  })
+  return { message: 'Course published successfully.', listingId, status: 'active' }
+}
+
+export { MODULES_COLLECTION, LESSONS_COLLECTION, LIVE_SESSIONS_COLLECTION, SESSION_ATTENDANCE_COLLECTION }

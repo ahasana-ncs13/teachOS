@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/useAuth'
 import Dashboard from './pages/Dashboard'
-import { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage, TeacherListingsPage } from './pages/WorkspacePages'
+import { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage } from './pages/WorkspacePages'
+import TeacherListingsPage from './pages/TeacherListingsPage'
+import CourseManagementPage from './pages/CourseManagementPage'
 import Home from './pages/Home'
 import LegalPage from './pages/LegalPage'
 import Login from './pages/Login'
@@ -16,6 +18,7 @@ import AdminRecords from './pages/admin/AdminRecords'
 import ErrorPage from './pages/ErrorPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { StudentAssignments, StudentClasses, StudentDashboard, StudentPayments } from './pages/StudentPortal'
+import { PaymentSuccess } from './pages/PaymentSuccess'
 
 function App() {
   return (
@@ -31,6 +34,8 @@ function App() {
         <Route path="/student/classes" element={<ProtectedRoute role="student"><StudentClasses /></ProtectedRoute>} />
         <Route path="/student/assignments" element={<ProtectedRoute role="student"><StudentAssignments /></ProtectedRoute>} />
         <Route path="/student/payments" element={<ProtectedRoute role="student"><StudentPayments /></ProtectedRoute>} />
+        <Route path="/student/payment/success" element={<ProtectedRoute role="student"><PaymentSuccess /></ProtectedRoute>} />
+        <Route path="/student/payment/cancel" element={<ProtectedRoute role="student"><Navigate to="/student/classes" replace /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
         <Route path="/admin/classes" element={<ProtectedRoute role="admin"><AdminClasses /></ProtectedRoute>} />
         <Route path="/admin/directory" element={<ProtectedRoute role="admin"><AdminDirectory /></ProtectedRoute>} />
@@ -39,6 +44,7 @@ function App() {
         <Route path="/admin/settings" element={<ProtectedRoute role="admin"><AdminSettings /></ProtectedRoute>} />
         <Route path="/dashboard/attendance" element={<ProtectedRoute role="teacher"><AttendancePage /></ProtectedRoute>} />
         <Route path="/dashboard/listings" element={<ProtectedRoute role="teacher"><TeacherListingsPage /></ProtectedRoute>} />
+<Route path="/dashboard/course/:listingId" element={<ProtectedRoute role="teacher"><CourseManagementPage /></ProtectedRoute>} />
         <Route path="/dashboard/classes" element={<ProtectedRoute role="teacher"><ClassesPage /></ProtectedRoute>} />
         <Route path="/dashboard/directory" element={<ProtectedRoute role="teacher"><DirectoryPage /></ProtectedRoute>} />
         <Route path="/dashboard/payments" element={<ProtectedRoute role="teacher"><PaymentsPage /></ProtectedRoute>} />

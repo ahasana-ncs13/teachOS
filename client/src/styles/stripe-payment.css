@@ -1,0 +1,634 @@
+/* ============================================================
+   Stripe Payment Flow — stripe-payment.css
+   Stripe-branded checkout modal: white header + light body + receipt
+   ============================================================ */
+
+/* Backdrop */
+.st-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(8, 28, 48, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: st-fade-in 0.2s ease;
+}
+
+@keyframes st-fade-in {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+
+/* Modal container */
+.st-modal {
+  width: 100%;
+  max-width: 390px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 28px 80px rgba(8, 28, 48, 0.32);
+  background: #f5f5f9;
+  animation: st-slide-up 0.25s cubic-bezier(0.34, 1.3, 0.64, 1);
+  max-height: 96vh;
+  overflow-y: auto;
+}
+
+.st-modal-success {
+  background: #fff;
+  max-width: 420px;
+}
+
+@keyframes st-slide-up {
+  from { transform: translateY(32px); opacity: 0 }
+  to   { transform: translateY(0);    opacity: 1 }
+}
+
+/* ─── HEADER (white section) ─────────────────────────────── */
+.st-header {
+  background: #fff;
+  padding: 16px 20px 14px;
+  display: flex;
+  justify-content: center;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+.st-brand-plaque {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1.5px solid rgba(99, 91, 255, 0.2);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.st-logo {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.st-wordmark {
+  font-size: 22px;
+  font-weight: 800;
+  color: #000;
+  letter-spacing: -0.5px;
+  font-family: 'Plus Jakarta Sans', 'DM Sans', sans-serif;
+}
+
+.st-payment-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #666;
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* ─── MERCHANT BANNER ────────────────────────────────────── */
+.st-merchant-banner {
+  background: #fff;
+  padding: 10px 20px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+.st-merchant-banner > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.st-merchant-label,
+.st-invoice-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #888;
+  font-weight: 600;
+}
+
+.st-merchant-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0b1c30;
+}
+
+.st-merchant-right {
+  text-align: right;
+}
+
+.st-invoice-no {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0b1c30;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ─── STEP BAR ───────────────────────────────────────────── */
+.st-stepbar {
+  background: #f0f0f5;
+  padding: 10px 20px;
+  border-bottom: 1px solid #e8e8f0;
+}
+
+.st-stepbar-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+}
+
+.st-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  position: relative;
+  z-index: 1;
+}
+
+.st-step-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(99, 91, 255, 0.15);
+  border: 2px solid rgba(99, 91, 255, 0.25);
+  color: #888;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.st-step.active .st-step-dot {
+  background: #635bff;
+  border-color: #635bff;
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(99, 91, 255, 0.15);
+}
+
+.st-step.done .st-step-dot {
+  background: #107c41;
+  border-color: #107c41;
+  color: #fff;
+}
+
+.st-step span {
+  font-size: 9px;
+  font-weight: 600;
+  color: #888;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.st-step.active span { color: #635bff; }
+.st-step.done span  { color: #107c41; }
+
+.st-step-line {
+  position: absolute;
+  top: 11px;
+  left: 11px;
+  height: 2px;
+  background: #635bff;
+  transition: width 0.3s ease;
+  z-index: 0;
+}
+
+/* ─── MODE HINTS ─────────────────────────────────────────── */
+.st-mode-hint, .st-mode-live, .st-mode-demo {
+  text-align: center;
+  width: 100%;
+  max-width: 300px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+.st-mode-hint { color: #888; background: #f0f0f5; }
+.st-mode-live { color: #1a73e8; background: #e8f0fe; }
+.st-mode-demo { color: #107c41; background: #e8f5e9; }
+
+/* ─── BODY ───────────────────────────────────────────────── */
+.st-body {
+  padding: 20px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.st-inner-card {
+  width: 100%;
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px 16px;
+  text-align: center;
+  border: 1px solid #e8e8f0;
+}
+
+.st-merchant-course {
+  color: #0b1c30;
+  font-size: 13px;
+  margin: 0 0 6px;
+  font-weight: 500;
+}
+
+.st-amount-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #0b1c30;
+  font-size: 13px;
+}
+
+.st-amount-row strong {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  color: #635bff;
+}
+
+.st-breakdown {
+  font-size: 11px;
+  color: #888;
+  font-weight: 600;
+}
+
+/* ─── FIELD LABEL ────────────────────────────────────────── */
+.st-field-label {
+  color: #0b1c30;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  width: 100%;
+}
+
+.st-sub-label {
+  color: #888;
+  font-size: 12px;
+  text-align: left;
+  margin: 0;
+}
+
+/* ─── INPUTS ─────────────────────────────────────────────── */
+.st-input-wrap {
+  width: 100%;
+  max-width: 300px;
+}
+
+.st-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid #d0d0d8;
+  border-radius: 8px;
+  background: #fff;
+  color: #0b1c30;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.5px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-family: inherit;
+}
+
+.st-input:focus {
+  border-color: #635bff;
+  box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.15);
+}
+
+.st-input::placeholder { color: #aaa; font-weight: 400; }
+
+.st-expiry-cvc {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.st-half {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ─── ERROR ──────────────────────────────────────────────── */
+.st-error {
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  margin: 0;
+  padding: 8px 12px;
+  background: #fef2f2;
+  border-radius: 6px;
+  max-width: 300px;
+  width: 100%;
+  border: 1px solid #fee2e2;
+}
+
+/* ─── ACTIONS ────────────────────────────────────────────── */
+.st-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.st-btn-proceed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 8px;
+  border: none;
+  border-radius: 8px;
+  background: #635bff;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  font-family: inherit;
+  box-shadow: 0 4px 14px rgba(99, 91, 255, 0.25);
+}
+
+.st-btn-proceed:hover:not(:disabled) { background: #4a42d4; }
+.st-btn-proceed:active:not(:disabled) { transform: scale(0.97); }
+.st-btn-proceed:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.st-btn-close {
+  padding: 11px 8px;
+  border: none;
+  border-radius: 8px;
+  background: #f0f0f5;
+  color: #666;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  font-family: inherit;
+}
+
+.st-btn-close:hover:not(:disabled) { background: #e0e0e8; }
+.st-btn-close:active:not(:disabled) { transform: scale(0.97); }
+.st-btn-close:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── SPINNER ────────────────────────────────────────────── */
+.st-processing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+  width: 100%;
+  max-width: 300px;
+}
+
+.st-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(99, 91, 255, 0.2);
+  border-top-color: #635bff;
+  border-radius: 50%;
+  animation: st-spin 0.7s linear infinite;
+}
+
+@keyframes st-spin {
+  to { transform: rotate(360deg) }
+}
+
+.st-processing-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0b1c30;
+  margin: 0;
+}
+
+.st-processing-sub {
+  font-size: 12px;
+  color: #888;
+  margin: 0;
+  text-align: center;
+}
+
+/* ─── HOTLINE ────────────────────────────────────────────── */
+.st-hotline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #666;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  margin-top: 4px;
+}
+
+/* ─── SUCCESS SCREEN ─────────────────────────────────────── */
+.st-success-wrap {
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.st-success-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px 20px 16px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+.st-success-text h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  line-height: 1.3;
+  font-family: 'Plus Jakarta Sans', 'DM Sans', sans-serif;
+}
+
+.st-success-green { color: #107c41; font-weight: 800; }
+
+.st-success-sub {
+  font-size: 12px;
+  color: #888;
+  margin: 0;
+}
+
+.st-check-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(99, 91, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.st-check-icon {
+  font-size: 22px;
+  color: #635bff;
+  line-height: 1;
+}
+
+/* Merchant success */
+.st-success-merchant {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: #f8f8ff;
+  border-bottom: 1px solid #edeaff;
+}
+
+.st-success-merchant-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  flex-shrink: 0;
+}
+
+.st-success-merchant > div:last-child strong {
+  display: block;
+  font-size: 14px;
+  color: #0b1c30;
+}
+
+.st-success-merchant > div:last-child p {
+  font-size: 12px;
+  color: #888;
+  margin: 2px 0 0;
+}
+
+/* Receipt grid */
+.st-receipt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding: 4px 0;
+  background: #fff;
+}
+
+.st-receipt-cell {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f5f5f8;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.st-receipt-full {
+  grid-column: 1 / -1;
+}
+
+.st-receipt-cell > span {
+  font-size: 11px;
+  color: #888;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.st-receipt-cell > strong {
+  font-size: 13px;
+  color: #0b1c30;
+  font-weight: 700;
+}
+
+.st-amount-large {
+  font-size: 18px !important;
+  letter-spacing: -0.3px;
+}
+
+.st-receipt-cell > small {
+  font-size: 10px;
+  color: #888;
+}
+
+.st-trx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.st-copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #635bff;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+.st-copy-btn:hover { background: #eef0ff; }
+
+/* Success action */
+.st-success-actions {
+  padding: 16px 20px 20px;
+  background: #fff;
+}
+
+.st-btn-done {
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: 10px;
+  background: #635bff;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s;
+}
+
+.st-btn-done:hover { background: #4a42d4; }
+
+/* Copy toast */
+.st-copy-toast {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0b1c30;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+  z-index: 10;
+  animation: st-fade-in 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* Responsive */
+@media (max-width: 440px) {
+  .st-modal { border-radius: 12px 12px 0 0; align-self: flex-end; max-height: 92vh; }
+  .st-backdrop { align-items: flex-end; padding: 0; }
+}

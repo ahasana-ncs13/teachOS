@@ -174,12 +174,13 @@ Save enrollment info to MongoDB
 Show success toast
  
 👨‍🏫 My Listings Page (Private)
-Shows only listings created by the logged-in user (their own courses/batches).
+Shows listings owned by the authenticated teacher.
 Features:
-Show the information in a tabular form
-Update Button: Edit details in the modal/new update route.
-Delete Button: Confirm before deleting.
-Only user's own listings are shown.
+Display backend totals for listings, active listings, enrolled students, and available seats.
+Search and filter by batch name, status, course, and the Online category; sort by newest, oldest, or enrollment count.
+Create and edit listings in a responsive modal, change status, view details, manage enrolled students and assignments, or soft-delete after confirmation.
+Each listing is associated with a teacher-owned course. Courses are saved in the `courses` collection, use the `Online` category, and support `live` or `recorded` delivery.
+Listing ownership and course ownership are verified from the authenticated Firebase identity on the server.
  
 🧾 My Enrollments Page (Private)
 Displays all enrollments/orders by the logged-in user.
@@ -239,32 +240,34 @@ React Tooltip
  
 🧱 Database Structure (MongoDB)
  
-1️⃣ Collection: listings
+1️⃣ Collection: courses
 {
- "name": "HSC Physics Batch A",
- "category": "Offline Batch",
- "fee": 1500,
- "duration": "6 Months",
- "location": "Savar, Dhaka",
- "description": "HSC Physics preparation batch covering full syllabus with weekly exams.",
- "image": "https://example.com/physics-batch.jpg",
- "email": "teacher@gmail.com",
- "startDate": "2026-09-01"
+ "name": "Course name",
+ "category": "Online",
+ "deliveryMode": "live | recorded",
+ "teacherUid": "authenticated Firebase UID",
+ "teacherName": "Teacher name",
+ "status": "active"
 }
  
-2️⃣ Collection: orders
+2️⃣ Collection: listings
 {
- "courseId": "65488adsfadf5454f",
- "courseName": "HSC Physics Batch A",
- "studentName": "Mr. X",
- "email": "student@gmail.com",
- "seats": 1,
+ "name": "Batch name",
+ "courseId": "MongoDB ObjectId referencing courses",
+ "courseName": "Course name snapshot",
+ "category": "Online",
+ "deliveryMode": "live | recorded",
+ "days": ["Sun", "Wed"],
+ "startTime": "15:00",
+ "endTime": "17:00",
+ "capacity": 50,
  "fee": 1500,
- "address": "Savar, Dhaka",
- "phone": "017xxxxxxx",
- "date": "2026-09-01",
- "additionalNotes": "Prefer evening classes"
+ "teacherUid": "authenticated Firebase UID",
+ "status": "active | draft | completed | removed"
 }
+
+3️⃣ Collection: studentEnrollments
+Enrollment records reference the listing by `listingId` and the selected course by `courseId`; student and teacher ownership values are assigned by the server.
  
 Optional (Advanced)
 Firebase Admin SDK Authorization (Server-Side)
@@ -276,7 +279,7 @@ Initialize Admin SDK with service account in .env.
 
 In Firebase Console, enable **Authentication > Sign-in method > Email/Password** and add your local app domain under **Authentication > Settings > Authorized domains** if needed. Set `FIREBASE_PROJECT_ID` in `server/.env` to the same project ID configured in `client/.env`; the server verifies Firebase ID tokens and only allows access to records owned by the signed-in account. In local demo mode, demo records are only enabled when `NODE_ENV` is not `production`. If `server/.env` does not exist, create it from `server/.env.example`; if it already exists, keep its `MONGODB_URI` and add `FIREBASE_PROJECT_ID` without replacing the file.
 
-Teacher and student workspace data is saved through the Express API to MongoDB. The server automatically creates the `users`, `teacherDashboards`, `classes`, `students`, `attendanceRecords`, `lessonSessions`, `payments`, `payoutRequests`, `messages`, `officeHours`, `resources`, `studentEnrollments`, `assignments`, `assignmentSubmissions`, and `studentPayments` collections and their indexes on startup; GridFS creates its `resources.files` and `resources.chunks` collections when a file is uploaded. No manual collection creation is required.
+Teacher and student workspace data is saved through the Express API to MongoDB. The server automatically creates the `users`, `teacherDashboards`, `classes`, `students`, `attendanceRecords`, `lessonSessions`, `payments`, `payoutRequests`, `messages`, `officeHours`, `resources`, `courses`, `listings`, `studentEnrollments`, `assignments`, `assignmentSubmissions`, and `studentPayments` collections and their indexes on startup; GridFS creates its `resources.files` and `resources.chunks` collections when a file is uploaded. No manual collection creation is required.
 
 The student portal is available at `/student`, `/student/classes`, `/student/assignments`, and `/student/payments`. Students can enroll in free listings and submit coursework assigned by the listing's teacher. Paid listings use a local BDT-only demo checkout. Confirming the demo records a clearly labeled simulated payment and enrolls the student; it does not contact Stripe or any payment provider and does not collect or transfer money. Do not use this demo payment flow in production.
 

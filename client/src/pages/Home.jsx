@@ -3,6 +3,7 @@ import { FiArrowRight, FiBell, FiBookOpen, FiBriefcase, FiCheck, FiChevronDown, 
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
+import BkashPaymentFlow from '../components/BkashPaymentFlow'
 import '../styles/home.css'
 
 const slides = [
@@ -34,6 +35,8 @@ function Home() {
   const [selectedListing, setSelectedListing] = useState(null)
   const [selectedFaculty, setSelectedFaculty] = useState(null)
   const [infoModal, setInfoModal] = useState('')
+  const [bkashListing, setBkashListing] = useState(null)
+  const [enrollNotice, setEnrollNotice] = useState('')
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const profileMenuRef = useRef(null)
   const { user, signOut } = useAuth()
@@ -127,6 +130,29 @@ function Home() {
   const profileName = user?.displayName || user?.fullName || user?.email?.split('@')[0] || 'TeachOS user'
   const profileRole = user?.role ? `${user.role[0].toUpperCase()}${user.role.slice(1)}` : 'Member'
 
+  // Called from ListingModal "Pay & Enroll" / "Enroll" button
+  const handleEnroll = async (listing) => {
+    if (!user) { navigate('/login'); return }
+    if (user.role !== 'student') {
+      setToast('Switch to a student account to enroll in courses.')
+      return
+    }
+    if (Number(listing.fee) > 0) {
+      setSelectedListing(null)
+      setBkashListing(listing)
+    } else {
+      // Free course — enroll directly
+      try {
+        await api.post(`/student/enrollments/${encodeURIComponent(listing._id)}`)
+        setSelectedListing(null)
+        setEnrollNotice(`You are enrolled in ${listing.name}!`)
+        setTimeout(() => setEnrollNotice(''), 5000)
+      } catch (err) {
+        setToast(err.response?.data?.message || 'Could not enroll. Please try again.')
+      }
+    }
+  }
+
   useEffect(() => {
     if (!profileMenuOpen) return undefined
     const closeOnOutsideClick = (event) => {
@@ -186,9 +212,21 @@ function Home() {
     </main>
     <Footer openInfo={setInfoModal} isTeacher={isTeacher} />
     {toast && <div className="home-toast" role="status"><FiCheck /><span>{toast}</span><button type="button" aria-label="Dismiss notification" onClick={() => setToast('')}><FiX /></button></div>}
-    {selectedListing && <ListingModal listing={selectedListing} close={() => setSelectedListing(null)} />}
+    {enrollNotice && <div className="home-toast home-toast-success" role="status"><FiCheck /><span>{enrollNotice}</span><button type="button" aria-label="Dismiss" onClick={() => setEnrollNotice('')}><FiX /></button></div>}
+    {selectedListing && <ListingModal listing={selectedListing} user={user} close={() => setSelectedListing(null)} onEnroll={handleEnroll} />}
     {selectedFaculty && <FacultyModal teacher={selectedFaculty} close={() => setSelectedFaculty(null)} onSelectListing={(listing) => { setSelectedFaculty(null); setSelectedListing(listing) }} />}
     {infoModal && <InfoModal title={infoModal} close={() => setInfoModal('')} />}
+    {bkashListing && (
+      <BkashPaymentFlow
+        listing={bkashListing}
+        onClose={() => setBkashListing(null)}
+        onSuccess={({ trxID, amount }) => {
+          setBkashListing(null)
+          setEnrollNotice(`Payment of ৳${Number(amount || bkashListing.fee).toLocaleString('en-BD')} complete! TrxID: ${trxID}. You are enrolled.`)
+          setTimeout(() => setEnrollNotice(''), 8000)
+        }}
+      />
+    )}
   </div>
 }
 
@@ -216,13 +254,22 @@ function ListingCard({ data, onDetails }) {
   return <article className="listing-card">{data.image && <img className="listing-image" src={data.image} alt="" loading="lazy" />}<div className="listing-top"><span className={`listing-type ${categoryClass}`}>{data.category}</span><span className="listing-badge">{data.duration}</span></div><h3>{data.name}</h3><p className="listing-location"><FiMapPin /> {data.location}</p><div className="teacher"><span>{teacherName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><div><b>{teacherName} <FiCheck /></b><small>{data.email || 'Verified TeachOS educator'}</small></div></div><div className="listing-meta"><span><FiBookOpen /> Starts: {startDate}</span></div><div className="listing-footer"><div><small>Course fee</small><strong>{data.fee ? `৳${Number(data.fee).toLocaleString('en-BD')}` : 'Free'}</strong></div><button type="button" onClick={onDetails}>See details</button></div></article>
 }
 
-function ListingModal({ listing, close }) {
+function ListingModal({ listing, user, close, onEnroll }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = previousOverflow }
   }, [])
-  return <div className="home-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}><section className="home-detail-modal" role="dialog" aria-modal="true" aria-labelledby="listing-modal-title"><button className="home-modal-close" type="button" onClick={close} aria-label="Close course details"><FiX /></button><span className="listing-type">{listing.category}</span><h2 id="listing-modal-title">{listing.name}</h2><p>{listing.duration} · Starts {listing.startDate ? new Date(listing.startDate).toLocaleDateString() : 'flexibly'}</p><div className="home-modal-facts"><span><FiMapPin /> {listing.location}</span><span><FiBriefcase /> {listing.teacherName || 'TeachOS teacher'}</span><span><FiTag /> {listing.fee ? `৳${Number(listing.fee).toLocaleString('en-BD')}` : 'Free course'}</span></div><p className="home-modal-note">{listing.description}</p><div className="home-modal-actions"><Link className="home-primary" to="/register">Continue to enrollment <FiArrowRight /></Link><button className="home-secondary" type="button" onClick={close}>Keep browsing</button></div></section></div>
+  const isFree = !listing.fee || Number(listing.fee) <= 0
+  const isStudent = user?.role === 'student'
+  const enrollLabel = !user
+    ? 'Sign in to enroll'
+    : !isStudent
+      ? 'Student account required'
+      : isFree
+        ? 'Enroll for free'
+        : `Pay & Enroll · ৳${Number(listing.fee).toLocaleString('en-BD')}`
+  return <div className="home-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}><section className="home-detail-modal" role="dialog" aria-modal="true" aria-labelledby="listing-modal-title"><button className="home-modal-close" type="button" onClick={close} aria-label="Close course details"><FiX /></button><span className="listing-type">{listing.category}</span><h2 id="listing-modal-title">{listing.name}</h2><p>{listing.duration} · Starts {listing.startDate ? new Date(listing.startDate).toLocaleDateString() : 'flexibly'}</p><div className="home-modal-facts"><span><FiMapPin /> {listing.location}</span><span><FiBriefcase /> {listing.teacherName || 'TeachOS teacher'}</span><span><FiTag /> {listing.fee ? `৳${Number(listing.fee).toLocaleString('en-BD')}` : 'Free course'}</span></div><p className="home-modal-note">{listing.description}</p><div className="home-modal-actions"><button className="home-primary" type="button" onClick={() => onEnroll(listing)}>{enrollLabel} <FiArrowRight /></button><button className="home-secondary" type="button" onClick={close}>Keep browsing</button></div></section></div>
 }
 
 function WhySection() {

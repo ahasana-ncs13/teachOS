@@ -16,9 +16,18 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
     const [teachers, students, listings, classes, commission, payouts, latestListings] = await Promise.all([
       database.collection('users').countDocuments({ role: 'teacher', status: { $ne: 'removed' } }),
       database.collection('users').countDocuments({ role: 'student', status: { $ne: 'removed' } }),
+<<<<<<< HEAD
       database.collection('listings').countDocuments({ status: 'active' }),
       database.collection('classes').countDocuments(),
       getMonthlyCommission(database),
+=======
+      database.collection('listings').countDocuments({ status: { $ne: 'removed' } }),
+      database.collection('classes').countDocuments({ isSample: { $ne: true } }),
+      database.collection('payments').aggregate([
+        { $match: { type: 'earning', isSample: { $ne: true } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]).toArray(),
+>>>>>>> fbaf0e5 (done Z)
       database.collection('payoutRequests').aggregate([
         { $match: { isSample: { $ne: true } } },
         { $group: { _id: null, total: { $sum: '$amount' }, pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0] } } } },
@@ -50,9 +59,14 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
 platformRouter.get('/admin/payments', verifyToken, requireRole('admin'), async (_req, res, next) => {
   try {
     const database = getDatabase()
+<<<<<<< HEAD
     const month = typeof _req.query?.month === 'string' ? _req.query.month : undefined
     const [paymentRecords, payoutRecords, users, commission] = await Promise.all([
       database.collection('studentPayments').find({ gateway: { $in: ['stripe', 'bkash'] } }).sort({ createdAt: -1 }).limit(100).toArray(),
+=======
+    const [paymentRecords, payoutRecords, users] = await Promise.all([
+      database.collection('payments').find({ isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
+>>>>>>> fbaf0e5 (done Z)
       database.collection('payoutRequests').find({ isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
       database.collection('users').find({}, { projection: { uid: 1, fullName: 1, displayName: 1, email: 1 } }).toArray(),
       getMonthlyCommission(database, month),

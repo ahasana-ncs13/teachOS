@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
+<<<<<<< HEAD
 import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiExternalLink, FiFileText, FiGrid, FiHelpCircle, FiLogOut, FiPlus, FiSearch, FiSettings, FiUsers, FiVideo, FiX } from 'react-icons/fi'
+=======
+import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiGrid, FiHelpCircle, FiLogOut, FiPlus, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
+>>>>>>> fbaf0e5 (done Z)
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
 import NotificationCenter from '../components/NotificationCenter'
 import '../styles/workspace-pages.css'
 
-function WorkspaceFrame({ title, description, children, onQuickAction }) {
+export function WorkspaceFrame({ title, description, children, onQuickAction }) {
   const { user, signOut } = useAuth()
   const location = useLocation()
   const name = user?.displayName || user?.email?.split('@')[0] || 'Teacher'
@@ -19,7 +23,7 @@ function WorkspaceFrame({ title, description, children, onQuickAction }) {
     { to: '/dashboard/payments', label: 'Payments', icon: FiCalendar },
   ]
 
-  return <div className="workspace-shell">
+  return <div className={title === 'My Listings' ? 'workspace-shell teacher-listings-workspace' : 'workspace-shell'}>
     <aside className="workspace-sidebar">
       <Link className="workspace-brand" to="/dashboard">TeachOS</Link>
       <div className="workspace-user"><span>{name.slice(0, 1).toUpperCase()}</span><div><strong>{name}</strong><small>Teacher workspace</small></div></div>
@@ -148,14 +152,20 @@ function ClassesPage() {
     </form>}
     {data.loading ? <p className="workspace-empty">Loading classes...</p> : visible.length ? <div className="workspace-class-grid">{visible.map((item) => <article className="workspace-card class-card" key={item.id}>
       <div className="class-card-art"><span className={item.status}>{item.status}</span></div>
+<<<<<<< HEAD
       <div className="class-card-body"><h2>{item.title}</h2><p><FiCalendar /> {item.schedule} · {item.startTime}–{item.endTime}</p>{item.classType === 'live' && <p><FiVideo /> Google Meet · {item.classDate}</p>}<p><FiUsers /> {item.enrolled} students enrolled</p><p><FiBookOpen /> {item.location}</p>
         <div className="workspace-card-actions"><button type="button" onClick={() => { setEditing(item); setClassType(item.classType || 'in_person'); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Manage class</button>{item.classType === 'live' ? <a href={item.meetUrl} target="_blank" rel="noreferrer">Open Meet <FiExternalLink /></a> : <span>{item.isSample ? 'Sample' : 'Saved'}</span>}</div>
+=======
+      <div className="class-card-body"><h2>{item.title}</h2><p><FiCalendar /> {item.schedule} · {item.startTime}–{item.endTime}</p><p><FiUsers /> {item.enrolled} students enrolled</p><p><FiBookOpen /> {item.location}</p>
+        <div className="workspace-card-actions"><button type="button" onClick={() => { setEditing(item); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Manage class</button><span>Saved</span></div>
+>>>>>>> fbaf0e5 (done Z)
       </div>
     </article>)}</div> : <p className="workspace-empty">No classes found. Create a class to get started.</p>}
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
   </WorkspaceFrame>
 }
 
+<<<<<<< HEAD
 function TeacherListingsPage() {
   const { user } = useAuth()
   const [listings, setListings] = useState([])
@@ -304,6 +314,8 @@ function TeacherListingsPage() {
   </WorkspaceFrame>
 }
 
+=======
+>>>>>>> fbaf0e5 (done Z)
 function DirectoryPage() {
   const data = useWorkspaceData('/students', 'students')
   const classes = useWorkspaceData('/classes', 'classes')
@@ -345,7 +357,6 @@ function DirectoryPage() {
   return <WorkspaceFrame title="Student Directory" description="Manage your enrolled students across all classes." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={data.error || classes.error} notice={notice} />
     <div className="workspace-toolbar"><label><FiSearch /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or class..." /></label><div className="workspace-toolbar-actions"><button className="workspace-secondary" type="button" onClick={exportCsv}><FiDownload /> Export CSV</button><button className="workspace-primary" type="button" onClick={() => setShowForm((value) => !value)}><FiPlus /> Add student</button></div></div>
-    {data.items.some((student) => student.isSample) && <p className="workspace-info">This directory includes starter sample students. Add real student records to build your own roster.</p>}
     <div className="workspace-metrics"><article><span>Total enrolled</span><strong>{data.items.length}</strong></article><article><span>Average attendance</span><strong>{data.items.length ? `${(data.items.reduce((sum, student) => sum + (student.attendancePercent || 0), 0) / data.items.length).toFixed(1)}%` : '—'}</strong></article><article><span>Active departments</span><strong>{new Set(data.items.map((student) => student.department)).size}</strong></article></div>
     {showForm && <form className="workspace-form workspace-class-form" onSubmit={submitStudent}>
       <h2>Add a student</h2><label>Full name<input name="name" required maxLength="120" /></label>
@@ -571,9 +582,15 @@ function PaymentsPage() {
   }
   return <WorkspaceFrame title="Payments & Earnings" description="Review Stripe-confirmed payments, monthly commission, and payout requests." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={data.error} notice={notice} />
+<<<<<<< HEAD
     <div className="workspace-finance-actions"><button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request payout</button></div>
     <div className="workspace-metrics workspace-finance-metrics"><article><span>{finance?.month || 'This month'} gross payments</span><strong>{formatMoney(finance?.monthly?.grossAmount || 0, 'BDT')}</strong></article><article><span>TeachOS commission (5%)</span><strong>{formatMoney(finance?.monthly?.commissionAmount || 0, 'BDT')}</strong></article><article><span>Teacher net (95%)</span><strong>{formatMoney(finance?.monthly?.netAmount || 0, 'BDT')}</strong></article><article><span>Available for payout</span><strong>{formatMoney(finance?.available || 0, 'BDT')}</strong></article></div>
     <p className="workspace-info">Only Stripe-confirmed live payments count toward income, commission, and payout availability. Test transactions are excluded. Payout requests are saved for admin review; no transfer is initiated automatically.</p>
+=======
+    <div className="workspace-finance-actions"><button className="workspace-secondary" type="button" onClick={() => setMode(mode === 'earning' ? '' : 'earning')}><FiPlus /> Record payment</button><button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request payout</button></div>
+    <div className="workspace-metrics workspace-finance-metrics"><article><span>Total recorded earnings</span><strong>{formatMoney(finance?.earnings || 0, finance?.currency || 'BDT')}</strong></article><article><span>Available for payout</span><strong>{formatMoney(finance?.available || 0, finance?.currency || 'BDT')}</strong></article><article><span>Paid out</span><strong>{formatMoney(totalPaid, finance?.currency || 'BDT')}</strong></article></div>
+    <p className="workspace-info">Payout requests are stored for review only. Connect a payment provider separately before enabling real transfers.</p>
+>>>>>>> fbaf0e5 (done Z)
     {mode && <form className="workspace-form workspace-class-form" onSubmit={submitFinance}>
       <h2>Request a payout</h2>
       <label>Amount<input name="amount" type="number" step="0.01" min="0.01" required /></label>
@@ -581,7 +598,11 @@ function PaymentsPage() {
       <label>Account last 4 digits (optional)<input name="accountLast4" inputMode="numeric" pattern="[0-9]{4}" maxLength="4" /></label>
       <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Submit request'}</button><button className="workspace-secondary" type="button" onClick={() => setMode('')}>Cancel</button></div>
     </form>}
+<<<<<<< HEAD
     <section className="workspace-card workspace-finance-list"><h2>Recent payments &amp; payout requests</h2>{data.loading ? <p className="workspace-empty">Loading transactions...</p> : [...(finance?.payoutRequests || []).map((item) => ({ ...item, recordType: 'payout' })), ...(finance?.payments || []).map((item) => ({ ...item, recordType: 'payment' }))].sort((a, b) => new Date(b.createdAt || b.paidAt) - new Date(a.createdAt || a.paidAt)).map((item) => <article key={item.id || item.paymentId || item._id}><div><strong>{item.recordType === 'payout' ? 'Payout request' : item.courseName || 'Course payment'}</strong><small>{new Date(item.createdAt || item.paidAt).toLocaleDateString()} · {item.recordType === 'payout' ? item.status : `${item.gateway === 'stripe' ? 'Stripe' : 'bKash'} ${item.mode} · ${item.status}${['test', 'sandbox'].includes(item.mode) ? ' · Excluded from income' : ''}`}</small></div><b className={item.recordType === 'payout' ? 'negative' : ''}>{item.recordType === 'payout' ? '−' : '+'}{formatMoney(item.amount, 'BDT')}</b></article>)}</section>
+=======
+    <section className="workspace-card workspace-finance-list"><h2>Recent transactions</h2>{data.loading ? <p className="workspace-empty">Loading transactions...</p> : [...(finance?.payoutRequests || []).map((item) => ({ ...item, type: 'payout' })), ...data.items].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((item) => <article key={item.id}><div><strong>{item.description || (item.type === 'payout' ? 'Payout request' : 'Payment')}</strong><small>{item.date || new Date(item.createdAt).toLocaleDateString()} · {item.status}</small></div><b className={item.type === 'payout' ? 'negative' : ''}>{item.type === 'payout' ? '−' : '+'}{formatMoney(item.amount, item.currency || finance?.currency || 'BDT')}</b></article>)}</section>
+>>>>>>> fbaf0e5 (done Z)
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
   </WorkspaceFrame>
 }
@@ -593,7 +614,7 @@ const actionItems = [
   { id: 'resources', title: 'Upload resources', description: 'Store a resource link or file in MongoDB.' },
 ]
 
-function QuickActionChooser({ close }) {
+export function QuickActionChooser({ close }) {
   return <div className="workspace-modal-backdrop" onClick={close}><section className="workspace-quick-modal" onClick={(event) => event.stopPropagation()}><header><div><p>TeachOS</p><h2>Quick actions</h2><span>Choose a task to continue.</span></div><button aria-label="Close quick actions" onClick={close}><FiX /></button></header><div>{actionItems.map((item) => <Link to="/dashboard/actions" key={item.id} onClick={() => { sessionStorage.setItem('teachos-action', item.id); close() }}><strong>{item.title}</strong><span>{item.description}</span></Link>)}<Link to="/dashboard/classes" onClick={close}><strong>Create a class</strong><span>Set a schedule and roster.</span></Link><Link to="/dashboard/directory" onClick={close}><strong>Add a student</strong><span>Save student and enrollment details.</span></Link><Link to="/dashboard" onClick={close}><strong>Mark attendance</strong><span>Open your class attendance list.</span></Link></div></section></div>
 }
 
@@ -721,4 +742,4 @@ function formatMoney(amount) {
   return `৳${formattedAmount}`
 }
 
-export { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage, TeacherListingsPage }
+export { AttendancePage, ClassesPage, DirectoryPage, PaymentsPage, QuickActionsPage }

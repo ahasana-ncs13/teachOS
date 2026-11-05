@@ -37,7 +37,6 @@ body .register-page {
 .home-page .listing-card,
 .home-page .faculty-card,
 .home-page .reason-grid > div,
-.signin-page .signin-form-wrap,
 .register-page .register-card {
   border-color: rgb(118 87 214 / 15%);
   background: var(--brand-glass);

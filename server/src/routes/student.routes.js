@@ -3,10 +3,18 @@ import { getDatabase } from '../db.js'
 import { requireRole, verifyToken } from '../middleware/auth.js'
 import { createNotifications, notifyAdmins } from '../services/notification.service.js'
 import { parseObjectId } from '../utils/validation.js'
+import { computeListingPricing } from '../services/listing.service.js'
 
 export const studentRouter = Router()
 
 studentRouter.use('/student', verifyToken, requireRole('student'))
+
+const PAID_MODES = ['demo', 'test', 'bkash']
+
+function billingPeriodKey(date = new Date()) {
+  const d = new Date(date)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
 
 async function getEligibleStudentEnrollments(database, studentUid) {
   const enrollments = await database.collection('studentEnrollments')
@@ -17,22 +25,43 @@ async function getEligibleStudentEnrollments(database, studentUid) {
 
   const listingIds = enrollments.map((enrollment) => enrollment.listingId)
   const [listings, payments] = await Promise.all([
-    database.collection('listings').find({ _id: { $in: listingIds } }, { projection: { fee: 1 } }).toArray(),
+    database.collection('listings').find({ _id: { $in: listingIds } }, { projection: { fee: 1, monthlyTuitionFee: 1, admissionFee: 1 } }).toArray(),
     database.collection('studentPayments').find({
       studentUid,
       listingId: { $in: listingIds },
       status: 'paid',
+<<<<<<< HEAD
       gateway: { $in: ['stripe', 'bkash'] },
       mode: { $in: ['test', 'sandbox', 'live'] },
     }, { projection: { listingId: 1 } }).toArray(),
+=======
+      mode: { $in: PAID_MODES },
+    }, { projection: { listingId: 1, admissionPaid: 1, tuitionPaid: 1 } }).toArray(),
+>>>>>>> fbaf0e5 (done Z)
   ])
   const listingsById = new Map(listings.map((listing) => [String(listing._id), listing]))
-  const paidListingIds = new Set(payments.map((payment) => String(payment.listingId)))
+  const paidListingIds = new Set()
+  for (const payment of payments) {
+    const listing = listingsById.get(String(payment.listingId))
+    const { admissionFee } = computeListingPricing(listing || {})
+    if (payment.admissionPaid && payment.tuitionPaid) {
+      // New-style initial payment: admission + first month tuition both paid.
+      paidListingIds.add(String(payment.listingId))
+    } else if (admissionFee === 0 && !payment.admissionPaid && !payment.tuitionPaid) {
+      // Legacy record (monthly-only charge) for a free-admission listing.
+      paidListingIds.add(String(payment.listingId))
+    }
+  }
 
   return enrollments.filter((enrollment) => {
     const currentListing = listingsById.get(String(enrollment.listingId))
+<<<<<<< HEAD
     const fee = Number(currentListing?.fee ?? enrollment.fee) || 0
     return fee <= 0 || ['paid', 'test_paid', 'sandbox_paid', 'live_paid'].includes(enrollment.paymentStatus) || paidListingIds.has(String(enrollment.listingId))
+=======
+    const { initialPaymentTotal } = computeListingPricing(currentListing || { fee: Number(enrollment.fee) || 0 })
+    return initialPaymentTotal <= 0 || paidListingIds.has(String(enrollment.listingId))
+>>>>>>> fbaf0e5 (done Z)
   })
 }
 
@@ -83,6 +112,13 @@ studentRouter.get('/student/dashboard', async (req, res, next) => {
         location: enrollment.location,
         fee: enrollment.fee,
         image: enrollment.image,
+        courseId: enrollment.courseId,
+        courseName: enrollment.courseName,
+        deliveryMode: enrollment.deliveryMode,
+        days: enrollment.days,
+        startTime: enrollment.startTime,
+        endTime: enrollment.endTime,
+        capacity: enrollment.capacity,
         status: 'unavailable',
       },
     }))
@@ -119,21 +155,36 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
     if (!listing) {
       return res.status(404).json({ message: 'This course is no longer available.', code: 'LISTING_NOT_FOUND' })
     }
+    if (listing.status === 'draft' || listing.status === 'completed') {
+      return res.status(409).json({ message: 'This listing is not accepting new enrollments.', code: 'LISTING_NOT_OPEN' })
+    }
 
     const enrollments = database.collection('studentEnrollments')
     const existing = await enrollments.findOne({ studentUid: req.authUid, listingId })
-    const paidPayment = Number(listing.fee) > 0
+    const pricing = computeListingPricing(listing)
+    const initialRequired = pricing.initialPaymentTotal > 0
+    const paidPayment = initialRequired
       ? await database.collection('studentPayments').findOne({
         studentUid: req.authUid,
         listingId,
         status: 'paid',
+<<<<<<< HEAD
         gateway: { $in: ['stripe', 'bkash'] },
         mode: { $in: ['test', 'sandbox', 'live'] },
+=======
+        mode: { $in: PAID_MODES },
+        admissionPaid: true,
+        tuitionPaid: true,
+>>>>>>> fbaf0e5 (done Z)
       })
       : null
-    if (Number(listing.fee) > 0 && !paidPayment) {
+    if (initialRequired && !paidPayment) {
       return res.status(402).json({
+<<<<<<< HEAD
         message: 'Payment is required before enrolling in this course. Complete the Stripe test checkout first.',
+=======
+        message: 'Payment is required before enrolling in this course. Complete checkout first.',
+>>>>>>> fbaf0e5 (done Z)
         code: 'PAYMENT_REQUIRED',
       })
     }
@@ -141,12 +192,33 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
       if (paidPayment) {
         await enrollments.updateOne(
           { _id: existing._id },
+<<<<<<< HEAD
           { $set: { status: 'active', paymentStatus: paidPayment.mode === 'test' ? 'test_paid' : paidPayment.mode === 'sandbox' ? 'sandbox_paid' : 'live_paid', paymentId: paidPayment.paymentId || null, updatedAt: new Date() } },
+=======
+          {
+            $set: {
+              status: 'active',
+              paymentStatus: paidPayment.mode === 'bkash' ? 'bkash_paid' : (paidPayment.mode === 'demo' ? 'demo_paid' : 'test_paid'),
+              demoPaymentId: paidPayment.demoPaymentId || null,
+              stripeCheckoutSessionId: paidPayment.stripeCheckoutSessionId || null,
+              bkashPaymentId: paidPayment.bkashPaymentId || null,
+              trxID: paidPayment.trxID || null,
+              updatedAt: new Date(),
+            },
+          },
+>>>>>>> fbaf0e5 (done Z)
         )
         return res.json({ enrollment: existing, alreadyEnrolled: true })
       }
-      if (Number(listing.fee) <= 0) return res.json({ enrollment: existing, alreadyEnrolled: true })
+      if (!initialRequired) return res.json({ enrollment: existing, alreadyEnrolled: true })
       return res.status(402).json({ message: 'This course requires payment before enrollment.', code: 'PAYMENT_REQUIRED' })
+    }
+
+    if (Number.isSafeInteger(listing.capacity) && listing.capacity > 0) {
+      const enrolledCount = await enrollments.countDocuments({ listingId, status: 'active' })
+      if (enrolledCount >= listing.capacity) {
+        return res.status(409).json({ message: 'This listing has reached its enrollment capacity.', code: 'LISTING_FULL' })
+      }
     }
 
     const now = new Date()
@@ -155,18 +227,37 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
       studentName: req.user.fullName || req.user.email,
       studentEmail: req.user.email,
       listingId,
+      courseId: listing.courseId || null,
+      courseName: listing.courseName || '',
       name: listing.name,
       category: listing.category,
+      deliveryMode: listing.deliveryMode || 'live',
+      days: listing.days || [],
+      startTime: listing.startTime || '',
+      endTime: listing.endTime || '',
+      capacity: listing.capacity || null,
       teacherUid: listing.teacherUid,
       teacherName: listing.teacherName,
       duration: listing.duration,
       location: listing.location,
-      fee: Number(listing.fee) || 0,
+      // Legacy monthly fee mirror for existing readers.
+      fee: pricing.monthlyTuitionFee,
+      admissionFee: pricing.admissionFee,
+      monthlyTuitionFee: pricing.monthlyTuitionFee,
+      initialPaymentTotal: pricing.initialPaymentTotal,
       image: listing.image || '',
       status: 'active',
       ...(paidPayment ? {
+<<<<<<< HEAD
         paymentStatus: paidPayment.mode === 'test' ? 'test_paid' : paidPayment.mode === 'sandbox' ? 'sandbox_paid' : 'live_paid',
         paymentId: paidPayment.paymentId || null,
+=======
+        paymentStatus: paidPayment.mode === 'bkash' ? 'bkash_paid' : (paidPayment.mode === 'demo' ? 'demo_paid' : 'test_paid'),
+        demoPaymentId: paidPayment.demoPaymentId || null,
+        stripeCheckoutSessionId: paidPayment.stripeCheckoutSessionId || null,
+        bkashPaymentId: paidPayment.bkashPaymentId || null,
+        trxID: paidPayment.trxID || null,
+>>>>>>> fbaf0e5 (done Z)
       } : {}),
       enrolledAt: now,
       createdAt: now,
@@ -192,6 +283,156 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
   }
 })
 
+<<<<<<< HEAD
+=======
+studentRouter.post('/student/payments/checkout', async (req, res, next) => {
+  try {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(503).json({
+        message: 'Local BDT demo payments are disabled in production.',
+        code: 'DEMO_PAYMENTS_DISABLED',
+      })
+    }
+
+    const listingId = parseObjectId(req.body?.listingId, 'listingId')
+    const database = getDatabase()
+    const listing = await database.collection('listings').findOne({
+      _id: listingId,
+      status: { $ne: 'removed' },
+    })
+    if (!listing) return res.status(404).json({ message: 'This course is no longer available.', code: 'LISTING_NOT_FOUND' })
+
+    const pricing = computeListingPricing(listing)
+    const amountBdt = pricing.initialPaymentTotal
+    if (amountBdt <= 0) return res.status(400).json({ message: 'Free courses do not require checkout.', code: 'FREE_COURSE' })
+    if (!Number.isFinite(amountBdt)) return res.status(400).json({ message: 'This course has an invalid fee.', code: 'INVALID_COURSE_FEE' })
+
+    const enrollments = database.collection('studentEnrollments')
+    const existingEnrollment = await enrollments.findOne({ studentUid: req.authUid, listingId, status: 'active' })
+    const payments = database.collection('studentPayments')
+    let payment = await payments.findOne({
+      studentUid: req.authUid,
+      listingId,
+      status: 'paid',
+      mode: 'demo',
+      admissionPaid: true,
+      tuitionPaid: true,
+    })
+    const now = new Date()
+    const period = billingPeriodKey(now)
+    const demoPaymentId = randomUUID()
+    const paymentResult = await payments.updateOne(
+      { studentUid: req.authUid, listingId, mode: 'demo' },
+      {
+        $setOnInsert: {
+          demoPaymentId,
+          studentUid: req.authUid,
+          studentName: req.user.fullName || req.user.email,
+          studentEmail: req.user.email,
+          listingId,
+          courseName: listing.name,
+          category: listing.category,
+          teacherUid: listing.teacherUid,
+          teacherName: listing.teacherName,
+          duration: listing.duration,
+          location: listing.location,
+          image: listing.image || '',
+          amount: amountBdt,
+          currency: 'BDT',
+          status: 'paid',
+          mode: 'demo',
+          demoOnly: true,
+          paidAt: now,
+          createdAt: now,
+          // New admission + monthly tuition payment tracking
+          admissionFee: pricing.admissionFee,
+          monthlyTuitionFee: pricing.monthlyTuitionFee,
+          initialPaymentTotal: amountBdt,
+          admissionPaid: true,
+          tuitionPaid: true,
+          billingPeriod: period,
+          transactionId: demoPaymentId,
+          paymentStatus: 'paid',
+          paymentHistory: [
+            {
+              period,
+              amount: pricing.monthlyTuitionFee,
+              status: 'paid',
+              paidAt: now,
+              trxID: demoPaymentId,
+              paymentID: demoPaymentId,
+              type: 'tuition',
+            },
+          ],
+        },
+        $set: { updatedAt: now },
+      },
+      { upsert: true },
+    )
+    payment = await payments.findOne({ studentUid: req.authUid, listingId, mode: 'demo' })
+
+    if (!payment || payment.status !== 'paid') {
+      return res.status(409).json({ message: 'A BDT demo payment could not be confirmed. Please retry.', code: 'DEMO_PAYMENT_NOT_CONFIRMED' })
+    }
+
+    if (paymentResult.upsertedCount || payment?.status === 'paid') {
+      await enrollments.updateOne(
+        { studentUid: req.authUid, listingId },
+        {
+          $set: {
+            studentUid: req.authUid,
+            studentName: req.user.fullName || req.user.email,
+            studentEmail: req.user.email,
+            listingId,
+            name: listing.name,
+            category: listing.category,
+            teacherUid: listing.teacherUid,
+            teacherName: listing.teacherName,
+            duration: listing.duration,
+            location: listing.location,
+            fee: pricing.monthlyTuitionFee,
+            admissionFee: pricing.admissionFee,
+            monthlyTuitionFee: pricing.monthlyTuitionFee,
+            initialPaymentTotal: amountBdt,
+            image: listing.image || '',
+            status: 'active',
+            paymentStatus: 'demo_paid',
+            admissionPaid: true,
+            tuitionPaid: true,
+            demoPaymentId: payment.demoPaymentId,
+            enrolledAt: existingEnrollment?.enrolledAt || now,
+            updatedAt: now,
+          },
+          $setOnInsert: { createdAt: now },
+        },
+        { upsert: true },
+      )
+    }
+
+    res.status(paymentResult.upsertedCount ? 201 : 200).json({
+      success: true,
+      alreadyPaid: paymentResult.upsertedCount === 0,
+      payment: {
+        id: payment.demoPaymentId,
+        courseName: payment.courseName,
+        amount: payment.amount,
+        currency: payment.currency,
+        mode: payment.mode,
+        admissionFee: payment.admissionFee,
+        monthlyTuitionFee: payment.monthlyTuitionFee,
+        initialPaymentTotal: payment.initialPaymentTotal,
+        billingPeriod: payment.billingPeriod,
+      },
+    })
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'A demo payment for this course is already being recorded. Refresh your classes and try again.', code: 'PAYMENT_ALREADY_RECORDED' })
+    }
+    next(error)
+  }
+})
+
+>>>>>>> fbaf0e5 (done Z)
 studentRouter.get('/student/assignments', async (req, res, next) => {
   try {
     const database = getDatabase()
@@ -272,7 +513,12 @@ studentRouter.get('/student/payments', async (req, res, next) => {
         listingId: enrollment.listingId,
         name: enrollment.name,
         teacherName: enrollment.teacherName,
-        fee: Number(enrollment.fee) || 0,
+        fee: Number(enrollment.monthlyTuitionFee ?? enrollment.fee) || 0,
+        admissionFee: Number(enrollment.admissionFee) || 0,
+        monthlyTuitionFee: Number(enrollment.monthlyTuitionFee ?? enrollment.fee) || 0,
+        initialPaymentTotal: Number(enrollment.initialPaymentTotal) || 0,
+        admissionPaid: Boolean(enrollment.admissionPaid),
+        tuitionPaid: Boolean(enrollment.tuitionPaid),
         enrolledAt: enrollment.enrolledAt,
       })),
       payments,

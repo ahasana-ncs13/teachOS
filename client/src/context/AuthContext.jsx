@@ -16,16 +16,30 @@ const isConfigured = Object.values(firebaseConfig).every(Boolean)
 const auth = isConfigured ? getAuth(getApps().length ? getApps()[0] : initializeApp(firebaseConfig)) : null
 let currentDemoToken = null
 
-setAuthTokenProvider(async () => {
-  if (auth?.currentUser) {
-    try {
-      return await auth.currentUser.getIdToken()
-    } catch {
-      return currentDemoToken
+setAuthTokenProvider(
+  // Normal: returns cached token (Firebase auto-refreshes when close to expiry)
+  async () => {
+    if (auth?.currentUser) {
+      try {
+        return await auth.currentUser.getIdToken()
+      } catch {
+        return currentDemoToken
+      }
     }
-  }
-  return currentDemoToken
-})
+    return currentDemoToken
+  },
+  // Force-refresh: called by the 401 retry interceptor
+  async () => {
+    if (auth?.currentUser) {
+      try {
+        return await auth.currentUser.getIdToken(true)
+      } catch {
+        return null
+      }
+    }
+    return null
+  },
+)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
