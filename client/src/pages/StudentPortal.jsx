@@ -160,21 +160,6 @@ export function StudentDashboard() {
     }
   }
 
-<<<<<<< HEAD
-  const startStripePayment = async () => {
-    if (!demoPaymentListing) return
-    setEnrolling(String(demoPaymentListing._id))
-    setActionError('')
-    try {
-      const { data } = await api.post('/student/payments/checkout', { listingId: demoPaymentListing._id })
-      window.location.assign(data.redirectUrl)
-    } catch (requestError) {
-      setActionError(requestError.response?.data?.message || 'Could not start Stripe test checkout.')
-      setEnrolling('')
-    } finally {
-      setDemoPaymentListing(null)
-    }
-=======
   const handleBkashSuccess = ({ trxID, amount }) => {
     const listingTotal = Number(bkashListing?.admissionFee || 0) + Number((bkashListing?.monthlyTuitionFee ?? bkashListing?.fee) || 0)
     setNotice(`Payment of ${money(amount || listingTotal)} recorded. TrxID: ${trxID}. You are now enrolled in ${bkashListing?.name}.`)
@@ -195,7 +180,7 @@ export function StudentDashboard() {
   const handleCloseStripe = () => {
     setStripeListing(null)
     refresh()
->>>>>>> fbaf0e5 (done Z)
+  }
   }
 
   return <StudentLayout title={`Welcome back, ${name}`} description="Here is what is happening with your learning today.">
@@ -222,9 +207,6 @@ export function StudentDashboard() {
         {listings.length ? <div className="student-discovery-grid">{listings.map((listing) => <DiscoveryCard key={listing._id} listing={listing} isEnrolled={enrolledIds.has(String(listing._id))} enrolling={enrolling} onEnrollStripe={(l) => enroll(l, 'stripe')} onEnrollBkash={(l) => enroll(l, 'bkash')} />)}</div> : <div className="student-empty-inline"><FiSearch /><strong>No published courses yet</strong><span>Check back soon for newly published classes.</span></div>}
       </section>
     </>}
-<<<<<<< HEAD
-    {demoPaymentListing && <StripePaymentDialog listing={demoPaymentListing} busy={Boolean(enrolling)} onCancel={() => setDemoPaymentListing(null)} onConfirm={startStripePayment} />}
-=======
     {bkashListing && (
       <BkashPaymentFlow
         listing={bkashListing}
@@ -239,7 +221,6 @@ export function StudentDashboard() {
         onSuccess={handleStripeSuccess}
       />
     )}
->>>>>>> fbaf0e5 (done Z)
   </StudentLayout>
 }
 
@@ -253,36 +234,8 @@ export function StudentClasses() {
   const [notice, setNotice] = useState('')
   const [catalogError, setCatalogError] = useState('')
   const [actionError, setActionError] = useState('')
-<<<<<<< HEAD
-  const [demoPaymentListing, setDemoPaymentListing] = useState(null)
-  const paymentStatus = searchParams.get('paymentStatus')
-  useEffect(() => {
-    if (paymentStatus !== 'success') return
-    let current = true
-    const removePaymentParams = () => {
-      const cleanParams = new URLSearchParams(searchParams)
-      cleanParams.delete('paymentStatus')
-      cleanParams.delete('session_id')
-      setSearchParams(cleanParams, { replace: true })
-    }
-    const sessionId = searchParams.get('session_id')
-    if (!sessionId) return () => { current = false }
-    api.get('/student/payments/checkout/confirm', { params: { sessionId } }).then(({ data }) => {
-      if (!current) return
-      const result = data.status === 'paid' ? 'success' : data.status === 'verification_failed' ? 'verification_failed' : 'pending'
-      setNotice(paymentMessages[result])
-      if (result === 'success') refresh()
-    }).catch((requestError) => {
-      if (current) setNotice(requestError.response?.data?.message || paymentMessages.verification_failed)
-    }).finally(() => {
-      if (current) removePaymentParams()
-    })
-    return () => { current = false }
-  }, [paymentStatus, refresh, searchParams, setSearchParams])
-=======
   const [bkashListing, setBkashListing] = useState(null)
   const [stripeListing, setStripeListing] = useState(null)
->>>>>>> fbaf0e5 (done Z)
   useEffect(() => {
     let current = true
     api.get('/listings', { params: { page: 1, limit: 100 } }).then(({ data }) => {
@@ -326,21 +279,6 @@ export function StudentClasses() {
     }
   }
 
-<<<<<<< HEAD
-  const startStripePayment = async () => {
-    if (!demoPaymentListing) return
-    setBusy(String(demoPaymentListing._id))
-    setActionError('')
-    try {
-      const { data } = await api.post('/student/payments/checkout', { listingId: demoPaymentListing._id })
-      window.location.assign(data.redirectUrl)
-    } catch (requestError) {
-      setActionError(requestError.response?.data?.message || 'Could not start Stripe test checkout.')
-      setBusy('')
-    } finally {
-      setDemoPaymentListing(null)
-    }
-=======
   const handleBkashSuccess = ({ trxID, amount }) => {
     const listingTotal = Number(bkashListing?.admissionFee || 0) + Number((bkashListing?.monthlyTuitionFee ?? bkashListing?.fee) || 0)
     setNotice(`Payment of ${money(amount || listingTotal)} recorded. TrxID: ${trxID}. You are now enrolled in ${bkashListing?.name}.`)
@@ -365,7 +303,7 @@ export function StudentClasses() {
     setStripeListing(null)
     refresh()
     setMode('enrolled')
->>>>>>> fbaf0e5 (done Z)
+  }
   }
 
   return <StudentLayout title="My Classes" description="Keep your enrolled courses and discover new learning opportunities.">
@@ -481,11 +419,7 @@ export function StudentPayments() {
     const rows = [
       ['Date', 'Course / record', 'Teacher', 'Amount (BDT)', 'Status'],
       ...fees.map((item) => [dateLabel(item.enrolledAt), item.name, item.teacherName, Number(item.fee || 0).toFixed(2), 'Course fee']),
-<<<<<<< HEAD
-      ...payments.map((item) => [dateLabel(item.createdAt), item.courseName || 'Course payment', item.gateway === 'stripe' ? `Stripe ${item.mode}` : item.gateway === 'bkash' ? `bKash ${item.mode}` : item.reference || '', Number(item.amount || 0).toFixed(2), ['test', 'sandbox'].includes(item.mode) ? `Test ${item.status || 'pending'}` : item.status || 'Recorded']),
-=======
       ...payments.map((item) => [dateLabel(item.createdAt), item.courseName || item.description || 'Payment', item.mode === 'bkash' ? `bKash (${item.trxID || item.reference || 'Paid'})` : item.mode === 'demo' ? 'Local BDT demo' : item.reference || '', Number(item.amount || 0).toFixed(2), item.mode === 'demo' ? 'Demo paid' : item.status || 'Recorded']),
->>>>>>> fbaf0e5 (done Z)
     ]
     const csv = rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
@@ -505,38 +439,12 @@ export function StudentPayments() {
         {fees.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Course</th><th>Teacher</th><th>Admission (BDT)</th><th>Monthly Tuition (BDT)</th><th>Initial Payment (BDT)</th><th>Enrolled</th><th>Status</th></tr></thead><tbody>{fees.map((item) => <tr key={String(item.listingId)}><td><strong>{item.name}</strong></td><td>{item.teacherName || 'TeachOS teacher'}</td><td>{money(item.admissionFee || 0)}</td><td>{money(item.monthlyTuitionFee || 0)}</td><td>{money(item.initialPaymentTotal || 0)}</td><td>{dateLabel(item.enrolledAt)}</td><td><span className={`student-payment-status ${item.admissionPaid && item.tuitionPaid ? 'paid' : 'pending'}`}>{item.admissionPaid && item.tuitionPaid ? 'Initial paid' : 'Initial due'}</span></td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCreditCard /><strong>No course fees yet</strong><span>Enroll in a course to see its fee breakdown here.</span><Link to="/student/classes">Browse courses <FiArrowRight /></Link></div>}
       </section>
       <section className="student-panel student-fee-panel"><div className="student-panel-heading"><div><span className="student-eyebrow">Account activity</span><h2>Payment history</h2></div><button className="student-outline-button" type="button" onClick={downloadStatement}><FiDownload /> Download statement</button></div>
-<<<<<<< HEAD
-        {payments.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Date</th><th>Course</th><th>Payment type</th><th>Amount (BDT)</th><th>Status</th></tr></thead><tbody>{payments.map((item) => <tr key={item._id}><td>{dateLabel(item.createdAt)}</td><td>{item.courseName || 'Course payment'}</td><td>{item.gateway === 'stripe' ? `Stripe ${item.mode}` : item.gateway === 'bkash' ? `bKash ${item.mode}` : '—'}</td><td>{money(item.amount)}</td><td><span className={`student-payment-status ${item.status || 'recorded'}`}>{['test', 'sandbox'].includes(item.mode) ? `Test ${item.status || 'pending'}` : item.status || 'recorded'}</span></td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCreditCard /><strong>No payment records</strong><span>Confirmed Stripe test payments will appear here.</span></div>}
-=======
         {payments.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Date</th><th>Course</th><th>Billing period</th><th>Payment type</th><th>Amount (BDT)</th><th>Status</th></tr></thead><tbody>{payments.map((item) => <tr key={item._id}><td>{dateLabel(item.createdAt)}</td><td>{item.courseName || item.description || 'Student payment'}</td><td>{item.billingPeriod || '—'}</td><td>{item.initialPaymentTotal ? 'Admission + 1st month tuition' : item.mode === 'bkash' ? 'Monthly tuition' : item.mode === 'demo' ? 'Local demo' : '—'}</td><td>{money(item.amount)}</td><td><span className={`student-payment-status ${item.status || 'recorded'}`}>{item.mode === 'demo' ? 'Demo paid' : item.status || 'recorded'}</span></td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCreditCard /><strong>No payment records</strong><span>When a payment is recorded for your account, it will appear here.</span></div>}
->>>>>>> fbaf0e5 (done Z)
       </section>
     </>}
   </StudentLayout>
 }
 
-<<<<<<< HEAD
-function StripePaymentDialog({ listing, busy, onCancel, onConfirm }) {
-  return <div className="student-modal-backdrop" role="presentation" onMouseDown={(event) => {
-    if (event.target === event.currentTarget && !busy) onCancel()
-  }}>
-    <section className="student-modal" role="dialog" aria-modal="true" aria-labelledby="student-stripe-payment-title">
-      <button className="student-modal-close" type="button" aria-label="Close" disabled={busy} onClick={onCancel}><FiX /></button>
-      <span className="student-eyebrow">Stripe test mode · BDT</span>
-      <h2 id="student-stripe-payment-title">Continue to Stripe Checkout</h2>
-      <p>{listing.name}</p>
-      <div className="student-demo-payment-amount"><span>Test amount</span><strong>{money(listing.fee)}</strong></div>
-      <div className="student-billing-note"><FiShield /><p>This opens Stripe Checkout in test mode. No real money is collected; test payments are excluded from teacher income and the 5% platform commission.</p></div>
-      <div className="student-modal-actions">
-        <button className="student-primary-button" type="button" disabled={busy} onClick={onConfirm}>{busy ? 'Opening Stripe...' : `Continue · ${money(listing.fee)}`} <FiCreditCard /></button>
-        <button className="student-outline-button" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-      </div>
-    </section>
-  </div>
-}
-
-=======
->>>>>>> fbaf0e5 (done Z)
 function CourseRow({ enrollment }) {
   const listing = enrollment.listing || {}
   return <article className="student-course-row"><div className="student-course-icon"><FiBookOpen /></div><div className="student-course-info"><h3>{listing.name || enrollment.name}</h3><p>{listing.category || enrollment.category} · {listing.teacherName || enrollment.teacherName}</p></div><span className="student-course-location">{listing.location || enrollment.location}</span><Link to="/student/classes" aria-label={`Open ${listing.name || enrollment.name}`}><FiArrowRight /></Link></article>
