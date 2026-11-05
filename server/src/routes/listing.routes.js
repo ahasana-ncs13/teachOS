@@ -439,18 +439,6 @@ listingRouter.post('/listings', verifyToken, requireRole('teacher'), requirePlat
 
     validateSchema(body, {
       name: { required: true, type: 'string', min: 3, max: 150 },
-<<<<<<< HEAD
-      category: {
-        required: true,
-        type: 'string',
-        enum: ['Online Course', 'Offline Batch', 'Exam Preparation', 'Skill Course', 'Theory Course'],
-      },
-      fee: { required: false, type: 'number' },
-      duration: { required: true, type: 'string', min: 2, max: 100 },
-      location: { required: true, type: 'string', min: 2, max: 200 },
-      description: { required: true, type: 'string', min: 10, max: 5000 },
-      image: { required: false, type: 'string' },
-=======
       courseId: { required: true, type: 'string', min: 24, max: 24 },
       deliveryMode: { required: true, type: 'string', enum: ['live', 'recorded'] },
       days: { required: true },
@@ -462,7 +450,6 @@ listingRouter.post('/listings', verifyToken, requireRole('teacher'), requirePlat
       location: { required: false, type: 'string', max: 200 },
       description: { required: false, type: 'string', max: 5000 },
       image: { required: false, type: 'string', max: 2048 },
->>>>>>> fbaf0e5 (done Z)
       startDate: { required: false, type: 'string' },
       status: { required: false, type: 'string', enum: ['active', 'draft'] },
     })
@@ -491,13 +478,10 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
       'description',
       'image',
       'startDate',
-<<<<<<< HEAD
-=======
       'days',
       'startTime',
       'endTime',
       'capacity',
->>>>>>> fbaf0e5 (done Z)
       'status',
     ])
     if (!Object.keys(body).length) {
@@ -509,20 +493,9 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
 
     validateSchema(body, {
       name: { required: false, type: 'string', min: 3, max: 150 },
-      category: {
-        required: false,
-        type: 'string',
-<<<<<<< HEAD
-        enum: ['Online Course', 'Offline Batch', 'Exam Preparation', 'Skill Course', 'Theory Course'],
-      },
-      fee: { required: false, type: 'number' },
-      status: { required: false, type: 'string', enum: ['active', 'draft'] },
-=======
-        enum: ['Online'],
-      },
+      category: { required: false, type: 'string', enum: ['Online'] },
       admissionFee: { required: false, type: 'number' },
       monthlyTuitionFee: { required: false, type: 'number' },
->>>>>>> fbaf0e5 (done Z)
       duration: { required: false, type: 'string', min: 2, max: 100 },
       location: { required: false, type: 'string', max: 200 },
       description: { required: false, type: 'string', max: 5000 },

@@ -2,7 +2,6 @@ import { Router } from 'express'
 import { requirePlatformActive, requireRole, verifyToken } from '../middleware/auth.js'
 import { getDatabase } from '../db.js'
 import * as platformService from '../services/platform.service.js'
-import { getMonthlyCommission } from '../services/finance.service.js'
 import { sanitizeInput, validatePagination, validateSchema } from '../utils/validation.js'
 
 export const platformRouter = Router()
@@ -16,18 +15,12 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
     const [teachers, students, listings, classes, commission, payouts, latestListings] = await Promise.all([
       database.collection('users').countDocuments({ role: 'teacher', status: { $ne: 'removed' } }),
       database.collection('users').countDocuments({ role: 'student', status: { $ne: 'removed' } }),
-<<<<<<< HEAD
-      database.collection('listings').countDocuments({ status: 'active' }),
-      database.collection('classes').countDocuments(),
-      getMonthlyCommission(database),
-=======
       database.collection('listings').countDocuments({ status: { $ne: 'removed' } }),
       database.collection('classes').countDocuments({ isSample: { $ne: true } }),
       database.collection('payments').aggregate([
         { $match: { type: 'earning', isSample: { $ne: true } } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]).toArray(),
->>>>>>> fbaf0e5 (done Z)
       database.collection('payoutRequests').aggregate([
         { $match: { isSample: { $ne: true } } },
         { $group: { _id: null, total: { $sum: '$amount' }, pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0] } } } },
@@ -44,8 +37,7 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
         students,
         listings,
         classes,
-        recordedEarnings: commission.commissionAmount,
-        monthlyCommission: commission,
+        recordedEarnings: commission[0]?.total || 0,
         payoutRequests: payouts[0]?.total || 0,
         pendingPayouts: payouts[0]?.pending || 0,
         latestListings,
@@ -59,24 +51,16 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
 platformRouter.get('/admin/payments', verifyToken, requireRole('admin'), async (_req, res, next) => {
   try {
     const database = getDatabase()
-<<<<<<< HEAD
-    const month = typeof _req.query?.month === 'string' ? _req.query.month : undefined
-    const [paymentRecords, payoutRecords, users, commission] = await Promise.all([
-      database.collection('studentPayments').find({ gateway: { $in: ['stripe', 'bkash'] } }).sort({ createdAt: -1 }).limit(100).toArray(),
-=======
     const [paymentRecords, payoutRecords, users] = await Promise.all([
       database.collection('payments').find({ isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
->>>>>>> fbaf0e5 (done Z)
       database.collection('payoutRequests').find({ isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
       database.collection('users').find({}, { projection: { uid: 1, fullName: 1, displayName: 1, email: 1 } }).toArray(),
-      getMonthlyCommission(database, month),
     ])
     const usersByUid = new Map(users.map((user) => [user.uid, user.fullName || user.displayName || user.email || 'TeachOS user']))
     const payments = paymentRecords.map((record) => ({
       ...record,
-      person: record.teacherName || usersByUid.get(record.teacherUid) || 'TeachOS teacher',
+      person: usersByUid.get(record.uid) || 'TeachOS teacher',
       recordType: 'earning',
-      transactionType: record.gateway === 'stripe' ? `Stripe ${record.mode} payment` : `bKash ${record.mode} payment`,
     }))
     const payouts = payoutRecords.map((record) => ({
       ...record,
@@ -90,14 +74,6 @@ platformRouter.get('/admin/payments', verifyToken, requireRole('admin'), async (
       payments,
       payouts,
       summary: {
-        month: commission.month,
-        timezone: commission.timezone,
-        currency: commission.currency,
-        commissionRate: commission.commissionRate,
-        monthlyGross: commission.grossAmount,
-        recordedEarnings: commission.commissionAmount,
-        teacherNet: commission.teacherNetAmount,
-        teacherBreakdown: commission.teachers,
         requestedPayouts,
         pendingPayouts: payoutRecords.filter((record) => record.status === 'pending')
           .reduce((total, record) => total + (Number(record.amount) || 0), 0),

@@ -30,14 +30,8 @@ async function getEligibleStudentEnrollments(database, studentUid) {
       studentUid,
       listingId: { $in: listingIds },
       status: 'paid',
-<<<<<<< HEAD
-      gateway: { $in: ['stripe', 'bkash'] },
-      mode: { $in: ['test', 'sandbox', 'live'] },
-    }, { projection: { listingId: 1 } }).toArray(),
-=======
       mode: { $in: PAID_MODES },
     }, { projection: { listingId: 1, admissionPaid: 1, tuitionPaid: 1 } }).toArray(),
->>>>>>> fbaf0e5 (done Z)
   ])
   const listingsById = new Map(listings.map((listing) => [String(listing._id), listing]))
   const paidListingIds = new Set()
@@ -55,13 +49,8 @@ async function getEligibleStudentEnrollments(database, studentUid) {
 
   return enrollments.filter((enrollment) => {
     const currentListing = listingsById.get(String(enrollment.listingId))
-<<<<<<< HEAD
-    const fee = Number(currentListing?.fee ?? enrollment.fee) || 0
-    return fee <= 0 || ['paid', 'test_paid', 'sandbox_paid', 'live_paid'].includes(enrollment.paymentStatus) || paidListingIds.has(String(enrollment.listingId))
-=======
     const { initialPaymentTotal } = computeListingPricing(currentListing || { fee: Number(enrollment.fee) || 0 })
     return initialPaymentTotal <= 0 || paidListingIds.has(String(enrollment.listingId))
->>>>>>> fbaf0e5 (done Z)
   })
 }
 
@@ -168,23 +157,14 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
         studentUid: req.authUid,
         listingId,
         status: 'paid',
-<<<<<<< HEAD
-        gateway: { $in: ['stripe', 'bkash'] },
-        mode: { $in: ['test', 'sandbox', 'live'] },
-=======
         mode: { $in: PAID_MODES },
         admissionPaid: true,
         tuitionPaid: true,
->>>>>>> fbaf0e5 (done Z)
       })
       : null
     if (initialRequired && !paidPayment) {
       return res.status(402).json({
-<<<<<<< HEAD
-        message: 'Payment is required before enrolling in this course. Complete the Stripe test checkout first.',
-=======
         message: 'Payment is required before enrolling in this course. Complete checkout first.',
->>>>>>> fbaf0e5 (done Z)
         code: 'PAYMENT_REQUIRED',
       })
     }
@@ -192,9 +172,6 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
       if (paidPayment) {
         await enrollments.updateOne(
           { _id: existing._id },
-<<<<<<< HEAD
-          { $set: { status: 'active', paymentStatus: paidPayment.mode === 'test' ? 'test_paid' : paidPayment.mode === 'sandbox' ? 'sandbox_paid' : 'live_paid', paymentId: paidPayment.paymentId || null, updatedAt: new Date() } },
-=======
           {
             $set: {
               status: 'active',
@@ -206,7 +183,6 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
               updatedAt: new Date(),
             },
           },
->>>>>>> fbaf0e5 (done Z)
         )
         return res.json({ enrollment: existing, alreadyEnrolled: true })
       }
@@ -248,16 +224,11 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
       image: listing.image || '',
       status: 'active',
       ...(paidPayment ? {
-<<<<<<< HEAD
-        paymentStatus: paidPayment.mode === 'test' ? 'test_paid' : paidPayment.mode === 'sandbox' ? 'sandbox_paid' : 'live_paid',
-        paymentId: paidPayment.paymentId || null,
-=======
         paymentStatus: paidPayment.mode === 'bkash' ? 'bkash_paid' : (paidPayment.mode === 'demo' ? 'demo_paid' : 'test_paid'),
         demoPaymentId: paidPayment.demoPaymentId || null,
         stripeCheckoutSessionId: paidPayment.stripeCheckoutSessionId || null,
         bkashPaymentId: paidPayment.bkashPaymentId || null,
         trxID: paidPayment.trxID || null,
->>>>>>> fbaf0e5 (done Z)
       } : {}),
       enrolledAt: now,
       createdAt: now,
@@ -283,8 +254,6 @@ studentRouter.post('/student/enrollments/:listingId', async (req, res, next) => 
   }
 })
 
-<<<<<<< HEAD
-=======
 studentRouter.post('/student/payments/checkout', async (req, res, next) => {
   try {
     if (process.env.NODE_ENV === 'production') {
@@ -344,7 +313,6 @@ studentRouter.post('/student/payments/checkout', async (req, res, next) => {
           demoOnly: true,
           paidAt: now,
           createdAt: now,
-          // New admission + monthly tuition payment tracking
           admissionFee: pricing.admissionFee,
           monthlyTuitionFee: pricing.monthlyTuitionFee,
           initialPaymentTotal: amountBdt,
@@ -432,7 +400,6 @@ studentRouter.post('/student/payments/checkout', async (req, res, next) => {
   }
 })
 
->>>>>>> fbaf0e5 (done Z)
 studentRouter.get('/student/assignments', async (req, res, next) => {
   try {
     const database = getDatabase()
@@ -506,7 +473,7 @@ studentRouter.get('/student/payments', async (req, res, next) => {
     const database = getDatabase()
     const [enrollments, payments] = await Promise.all([
       getEligibleStudentEnrollments(database, req.authUid),
-      database.collection('studentPayments').find({ studentUid: req.authUid, gateway: { $in: ['stripe', 'bkash'] } }).sort({ createdAt: -1 }).limit(100).toArray(),
+      database.collection('studentPayments').find({ studentUid: req.authUid }).sort({ createdAt: -1 }).limit(100).toArray(),
     ])
     res.json({
       courseFees: enrollments.map((enrollment) => ({
@@ -522,10 +489,6 @@ studentRouter.get('/student/payments', async (req, res, next) => {
         enrolledAt: enrollment.enrolledAt,
       })),
       payments,
-      paidTotal: payments.filter((payment) => payment.gateway === 'stripe' && payment.mode === 'live' && payment.status === 'paid')
-        .reduce((total, payment) => total + (Number(payment.amount) || 0), 0),
-      testTotal: payments.filter((payment) => payment.gateway === 'stripe' && payment.mode === 'test' && payment.status === 'paid')
-        .reduce((total, payment) => total + (Number(payment.amount) || 0), 0),
       currency: 'BDT',
     })
   } catch (error) {

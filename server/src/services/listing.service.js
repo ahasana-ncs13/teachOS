@@ -110,9 +110,6 @@ export async function createListing(req, data) {
 
 export async function getListings(req, { search, category, page = 1, limit = 20 }) {
   const database = getDatabase()
-<<<<<<< HEAD
-  const filter = { status: 'active' }
-=======
   const filter = {
     $and: [
       { status: { $ne: 'removed' } },
@@ -120,7 +117,6 @@ export async function getListings(req, { search, category, page = 1, limit = 20 
       { status: { $ne: 'completed' } },
     ],
   }
->>>>>>> fbaf0e5 (done Z)
 
   if (category && typeof category === 'string' && category !== 'All') {
     const normalizedCategory = category.trim()
@@ -165,9 +161,6 @@ export async function getListings(req, { search, category, page = 1, limit = 20 
 
 export async function getLatestListings(req, count = 6) {
   const database = getDatabase()
-<<<<<<< HEAD
-  const filter = { status: 'active' }
-=======
   const filter = {
     $and: [
       { status: { $ne: 'removed' } },
@@ -175,7 +168,6 @@ export async function getLatestListings(req, count = 6) {
       { status: { $ne: 'completed' } },
     ],
   }
->>>>>>> fbaf0e5 (done Z)
 
   const limit = Math.min(Math.max(Number(count) || 6, 1), 20)
 
@@ -193,9 +185,6 @@ export async function getListingById(id) {
   const objectId = parseObjectId(id, 'listingId')
   const database = getDatabase()
   const listing = await database.collection('listings').findOne(
-<<<<<<< HEAD
-    { _id: objectId, status: 'active' },
-=======
     {
       _id: objectId,
       $and: [
@@ -204,7 +193,6 @@ export async function getListingById(id) {
         { status: { $ne: 'completed' } },
       ],
     },
->>>>>>> fbaf0e5 (done Z)
     { projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } }
   )
 
@@ -330,25 +318,6 @@ export async function updateListing(req, id, updateData) {
   if (updateData.description !== undefined) updates.description = updateData.description.trim()
   if (updateData.image !== undefined) updates.image = updateData.image.trim()
   if (updateData.startDate !== undefined) updates.startDate = new Date(updateData.startDate)
-<<<<<<< HEAD
-  if (updateData.status !== undefined) {
-    if (updateData.status === 'active' && existing.status !== 'active') {
-      if (!(Number(updateData.fee ?? existing.fee) > 0)) {
-        const error = new Error('Add a fee in BDT before publishing this paid course.')
-        error.status = 400
-        error.code = 'COURSE_FEE_REQUIRED'
-        throw error
-      }
-      if (!(updateData.duration ?? existing.duration)?.trim() || !(updateData.location ?? existing.location)?.trim() ||
-          (updateData.description ?? existing.description ?? '').trim().length < 10) {
-        const error = new Error('Add the course duration, location or delivery mode, and a description before publishing.')
-        error.status = 400
-        error.code = 'COURSE_DETAILS_REQUIRED'
-        throw error
-      }
-    }
-    updates.status = updateData.status
-=======
   if (updateData.days !== undefined) updates.days = updateData.days
   if (updateData.startTime !== undefined) updates.startTime = updateData.startTime
   if (updateData.endTime !== undefined) updates.endTime = updateData.endTime
@@ -367,7 +336,6 @@ export async function updateListing(req, id, updateData) {
     const startTime = updates.startTime || existing.startTime
     const endTime = updates.endTime || existing.endTime
     updates.duration = `${days.join(', ')} · ${startTime}–${endTime}`
->>>>>>> fbaf0e5 (done Z)
   }
   updates.updatedAt = new Date()
 
