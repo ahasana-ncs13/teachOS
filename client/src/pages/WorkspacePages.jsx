@@ -422,15 +422,9 @@ function PaymentsPage() {
   }
   return <WorkspaceFrame title="Payments & Earnings" description="Review Stripe-confirmed payments, monthly commission, and payout requests." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={data.error} notice={notice} />
-<<<<<<< HEAD
-    <div className="workspace-finance-actions"><button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request payout</button></div>
-    <div className="workspace-metrics workspace-finance-metrics"><article><span>{finance?.month || 'This month'} gross payments</span><strong>{formatMoney(finance?.monthly?.grossAmount || 0, 'BDT')}</strong></article><article><span>TeachOS commission (5%)</span><strong>{formatMoney(finance?.monthly?.commissionAmount || 0, 'BDT')}</strong></article><article><span>Teacher net (95%)</span><strong>{formatMoney(finance?.monthly?.netAmount || 0, 'BDT')}</strong></article><article><span>Available for payout</span><strong>{formatMoney(finance?.available || 0, 'BDT')}</strong></article></div>
-    <p className="workspace-info">Only Stripe-confirmed live payments count toward income, commission, and payout availability. Test transactions are excluded. Payout requests are saved for admin review; no transfer is initiated automatically.</p>
-=======
     <div className="workspace-finance-actions"><button className="workspace-secondary" type="button" onClick={() => setMode(mode === 'earning' ? '' : 'earning')}><FiPlus /> Record payment</button><button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request payout</button></div>
     <div className="workspace-metrics workspace-finance-metrics"><article><span>Total recorded earnings</span><strong>{formatMoney(finance?.earnings || 0, finance?.currency || 'BDT')}</strong></article><article><span>Available for payout</span><strong>{formatMoney(finance?.available || 0, finance?.currency || 'BDT')}</strong></article><article><span>Paid out</span><strong>{formatMoney(totalPaid, finance?.currency || 'BDT')}</strong></article></div>
     <p className="workspace-info">Payout requests are stored for review only. Connect a payment provider separately before enabling real transfers.</p>
->>>>>>> fbaf0e5 (done Z)
     {mode && <form className="workspace-form workspace-class-form" onSubmit={submitFinance}>
       <h2>Request a payout</h2>
       <label>Amount<input name="amount" type="number" step="0.01" min="0.01" required /></label>
@@ -438,11 +432,7 @@ function PaymentsPage() {
       <label>Account last 4 digits (optional)<input name="accountLast4" inputMode="numeric" pattern="[0-9]{4}" maxLength="4" /></label>
       <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Submit request'}</button><button className="workspace-secondary" type="button" onClick={() => setMode('')}>Cancel</button></div>
     </form>}
-<<<<<<< HEAD
-    <section className="workspace-card workspace-finance-list"><h2>Recent payments &amp; payout requests</h2>{data.loading ? <p className="workspace-empty">Loading transactions...</p> : [...(finance?.payoutRequests || []).map((item) => ({ ...item, recordType: 'payout' })), ...(finance?.payments || []).map((item) => ({ ...item, recordType: 'payment' }))].sort((a, b) => new Date(b.createdAt || b.paidAt) - new Date(a.createdAt || a.paidAt)).map((item) => <article key={item.id || item.paymentId || item._id}><div><strong>{item.recordType === 'payout' ? 'Payout request' : item.courseName || 'Course payment'}</strong><small>{new Date(item.createdAt || item.paidAt).toLocaleDateString()} · {item.recordType === 'payout' ? item.status : `${item.gateway === 'stripe' ? 'Stripe' : 'bKash'} ${item.mode} · ${item.status}${['test', 'sandbox'].includes(item.mode) ? ' · Excluded from income' : ''}`}</small></div><b className={item.recordType === 'payout' ? 'negative' : ''}>{item.recordType === 'payout' ? '−' : '+'}{formatMoney(item.amount, 'BDT')}</b></article>)}</section>
-=======
     <section className="workspace-card workspace-finance-list"><h2>Recent transactions</h2>{data.loading ? <p className="workspace-empty">Loading transactions...</p> : [...(finance?.payoutRequests || []).map((item) => ({ ...item, type: 'payout' })), ...data.items].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((item) => <article key={item.id}><div><strong>{item.description || (item.type === 'payout' ? 'Payout request' : 'Payment')}</strong><small>{item.date || new Date(item.createdAt).toLocaleDateString()} · {item.status}</small></div><b className={item.type === 'payout' ? 'negative' : ''}>{item.type === 'payout' ? '−' : '+'}{formatMoney(item.amount, item.currency || finance?.currency || 'BDT')}</b></article>)}</section>
->>>>>>> fbaf0e5 (done Z)
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
   </WorkspaceFrame>
 }

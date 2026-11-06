@@ -145,16 +145,72 @@ stripeRouter.post('/stripe/enroll', async (req, res, next) => {
     const pricing = listing ? computeListingPricing(listing) : { admissionFee: 0, monthlyTuitionFee: 0, initialPaymentTotal: 0 }
 
     if (listing) {
-      // Prevent duplicate enrollment/payment for the same listing.
+      // Idempotent: if a paid Stripe payment already exists, just enroll and return success.
       const existingPayment = await db.collection('studentPayments').findOne({
         studentUid: req.authUid,
         listingId,
         mode: 'stripe',
       })
       if (existingPayment?.status === 'paid') {
-        return res.status(409).json({
-          message: 'You have already completed payment for this course.',
-          code: 'PAYMENT_ALREADY_RECORDED',
+        const enrollments = db.collection('studentEnrollments')
+        await enrollments.updateOne(
+          { studentUid: req.authUid, listingId },
+          {
+            $set: {
+              studentUid: req.authUid,
+              studentName: req.user.fullName || req.user.email,
+              studentEmail: req.user.email,
+              listingId,
+              courseId: listing.courseId || null,
+              courseName: listing.courseName || '',
+              name: listing.name,
+              category: listing.category,
+              deliveryMode: listing.deliveryMode || 'live',
+              days: listing.days || [],
+              startTime: listing.startTime || '',
+              endTime: listing.endTime || '',
+              capacity: listing.capacity || null,
+              teacherUid: listing.teacherUid,
+              teacherName: listing.teacherName,
+              duration: listing.duration,
+              location: listing.location,
+              fee: pricing.monthlyTuitionFee,
+              admissionFee: pricing.admissionFee,
+              monthlyTuitionFee: pricing.monthlyTuitionFee,
+              initialPaymentTotal: pricing.initialPaymentTotal,
+              image: listing.image || '',
+              status: 'active',
+              paymentStatus: 'stripe_paid',
+              admissionPaid: true,
+              tuitionPaid: true,
+              stripeCheckoutSessionId: sessionId,
+              trxID: sessionId,
+              enrolledAt: now,
+              updatedAt: now,
+            },
+            $setOnInsert: { createdAt: now },
+          },
+          { upsert: true },
+        )
+
+        await writeAuditLog({
+          actorUid: req.authUid,
+          actorRole: 'student',
+          action: 'stripe_payment_already_paid_enroll',
+          targetType: 'listing',
+          targetId: String(listingId),
+          meta: { sessionId, amount: pricing.initialPaymentTotal },
+        })
+
+        return res.json({
+          success: true,
+          sessionId,
+          amount: session.amount,
+          currency: session.currency,
+          mode: session.mode,
+          enrolledListingId: listingId ? String(listingId) : null,
+          paymentStatus: 'paid',
+          alreadyPaid: true,
         })
       }
 
