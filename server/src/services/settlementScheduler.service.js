@@ -243,10 +243,13 @@ export async function runAdminMonthlySettlementJob(database) {
   const revenueTransactions = database.collection('revenueTransactions')
   const settlements = database.collection('monthlyAdminSettlements')
 
-  // Find all distinct past months with transactions
-  const monthsWithTxs = await revenueTransactions.distinct('paymentMonth', {
-    paymentMonth: { $lt: currentDhakaMonth },
-  })
+  // Find all distinct past months with transactions using an aggregation
+  // (the `distinct` command is not available under MongoDB API Version 1 strict mode)
+  const pastMonthAgg = await revenueTransactions.aggregate([
+    { $match: { paymentMonth: { $lt: currentDhakaMonth } } },
+    { $group: { _id: '$paymentMonth' } },
+  ]).toArray()
+  const monthsWithTxs = pastMonthAgg.map((m) => m._id).filter(Boolean)
 
   // Also include the immediate previous month even if 0 transactions
   const prevMonth = getPreviousDhakaMonth(currentDhakaMonth)

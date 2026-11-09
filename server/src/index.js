@@ -859,6 +859,18 @@ app.get('/api/health', (_request, response) => {
   response.status(databaseReady ? 200 : 503).json({ status: databaseReady ? 'ok' : 'starting', service: 'teachos-api', database: databaseReady ? 'connected' : 'connecting', timestamp: new Date().toISOString() })
 })
 
+// Guard all /api routes (except /health) until MongoDB is fully connected.
+// Returns 503 Service Unavailable during cold-start so clients get a clear
+// signal rather than a 500 "MongoDB has not been connected" crash.
+app.use('/api', (request, response, next) => {
+  if (databaseReady) return next()
+  if (request.path === '/health') return next()
+  return response.status(503).json({
+    message: 'The server is still starting up. Please try again in a moment.',
+    code: 'DATABASE_INITIALIZING',
+  })
+})
+
 app.use('/api', courseRouter)
 app.use('/api', listingRouter)
 app.use('/api', studentRouter)
