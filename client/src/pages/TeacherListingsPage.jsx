@@ -45,12 +45,25 @@ function ListingSkeletons() {
   </div>
 }
 
-function ListingCard({ listing, onView, onEdit, onStudents, onAssignments, onDelete, onStatusChange, busy }) {
+function ListingCard({ listing, onView, onEdit, onStudents, onAssignments, onDelete, onStatusChange, onPublicationChange, busy }) {
   const days = Array.isArray(listing.days) && listing.days.length ? listing.days.join(', ') : 'Schedule not set'
+  const isPublished = listing.published ?? listing.status === 'active'
+  const isOneTime = listing.pricingType === 'ONE_TIME' || (!listing.monthlyTuitionFee && Number(listing.fee) > 0 && listing.pricingType !== 'MONTHLY_SUBSCRIPTION')
   return <article className="teacher-listing-card">
     <header className="teacher-listing-card-header">
       <span className={`listing-status-pill ${listing.status || 'active'}`}>{listing.status || 'active'}</span>
       <span className="listing-category-tag">{listing.category || 'Online'}</span>
+      <span style={{
+        marginLeft: 'auto',
+        fontSize: '10px',
+        fontWeight: 700,
+        padding: '2px 6px',
+        borderRadius: '4px',
+        background: isOneTime ? '#ede9fe' : '#e0f2fe',
+        color: isOneTime ? '#6d28d9' : '#0369a1',
+      }}>
+        {isOneTime ? 'Lifetime' : 'Subscription'}
+      </span>
     </header>
     <h2>{listing.name}</h2>
     <p className="listing-course-name"><FiBookOpen /> {listing.courseName || listing.course?.name || 'Course not linked'}</p>
@@ -61,9 +74,22 @@ function ListingCard({ listing, onView, onEdit, onStudents, onAssignments, onDel
       <p><FiCheckCircle /><span>Online · {listing.deliveryMode === 'recorded' ? 'Recorded' : 'Live'}</span></p>
       <p><FiUsers /><span>{Number(listing.enrolledCount || 0)} / {Number(listing.capacity || 0)} students</span></p>
     </div>
+    <div className="listing-publish-row">
+      <span>Publish</span>
+      <strong className={isPublished ? 'published' : 'unpublished'}>{isPublished ? 'Published' : 'Unpublished'}</strong>
+      <button type="button" disabled={busy} onClick={() => onPublicationChange(listing, !isPublished)}>
+        {busy ? 'Saving...' : isPublished ? 'Unpublish' : 'Publish'}
+      </button>
+    </div>
     <footer className="teacher-listing-card-footer">
-      <div><strong>{money(listing.admissionFee || 0)}</strong><span>admission</span></div>
-      <div><strong>{money((listing.monthlyTuitionFee ?? listing.fee) || 0)}</strong><span>tuition/month</span></div>
+      {isOneTime ? (
+        <div><strong>{money(listing.admissionFee || listing.fee || 0)}</strong><span>one-time fee</span></div>
+      ) : (
+        <>
+          <div><strong>{money(listing.admissionFee || 0)}</strong><span>admission</span></div>
+          <div><strong>{money((listing.monthlyTuitionFee ?? listing.fee) || 0)}</strong><span>tuition/month</span></div>
+        </>
+      )}
       <small>Created {dateLabel(listing.createdAt)}</small>
     </footer>
     <div className="teacher-listing-actions">
@@ -86,6 +112,7 @@ function ListingCard({ listing, onView, onEdit, onStudents, onAssignments, onDel
 
 function ListingDetailsModal({ listing, close }) {
   if (!listing) return null
+  const isOneTime = listing.pricingType === 'ONE_TIME' || (!listing.monthlyTuitionFee && Number(listing.fee) > 0 && listing.pricingType !== 'MONTHLY_SUBSCRIPTION')
   return <div className="listing-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
     <section className="listing-detail-modal" role="dialog" aria-modal="true" aria-labelledby="listing-details-title">
       <header><div><span>Listing details</span><h2 id="listing-details-title">{listing.name}</h2></div><button type="button" aria-label="Close listing details" onClick={close}><FiX /></button></header>
@@ -96,10 +123,17 @@ function ListingDetailsModal({ listing, close }) {
         <div><dt>Schedule</dt><dd>{listing.days?.length ? listing.days.join(', ') : listing.duration || 'Not set'}{listing.startTime && listing.endTime ? ` · ${listing.startTime}–${listing.endTime}` : ''}</dd></div>
         <div><dt>Location</dt><dd>{listing.location || 'Online classroom'}</dd></div>
         <div><dt>Capacity</dt><dd>{listing.enrolledCount || 0} enrolled of {listing.capacity || 0}</dd></div>
-        <div><dt>Admission fee (one-time)</dt><dd>{money(listing.admissionFee || 0)}</dd></div>
-        <div><dt>Monthly tuition fee</dt><dd>{money((listing.monthlyTuitionFee ?? listing.fee) || 0)}</dd></div>
-        <div><dt>First payment</dt><dd>{money((listing.admissionFee || 0) + ((listing.monthlyTuitionFee ?? listing.fee) || 0))}</dd></div>
-        <div><dt>From next month</dt><dd>{money((listing.monthlyTuitionFee ?? listing.fee) || 0)}/month</dd></div>
+        <div><dt>Pricing Type</dt><dd><span style={{ background: isOneTime ? '#ede9fe' : '#e0f2fe', color: isOneTime ? '#6d28d9' : '#0369a1', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700 }}>{isOneTime ? 'One-Time Payment (Lifetime)' : 'Monthly Subscription'}</span></dd></div>
+        {isOneTime ? (
+          <div><dt>Course Fee</dt><dd><strong>{money(listing.admissionFee || listing.fee || 0)}</strong> (Lifetime access)</dd></div>
+        ) : (
+          <>
+            <div><dt>Admission fee (one-time)</dt><dd>{money(listing.admissionFee || 0)}</dd></div>
+            <div><dt>Monthly tuition fee</dt><dd>{money((listing.monthlyTuitionFee ?? listing.fee) || 0)}</dd></div>
+            <div><dt>First payment</dt><dd>{money((listing.admissionFee || 0) + ((listing.monthlyTuitionFee ?? listing.fee) || 0))}</dd></div>
+            <div><dt>From next month</dt><dd>{money((listing.monthlyTuitionFee ?? listing.fee) || 0)}/month</dd></div>
+          </>
+        )}
         <div><dt>Status</dt><dd><span className={`listing-status-pill ${listing.status || 'active'}`}>{listing.status || 'active'}</span></dd></div>
         <div><dt>Created</dt><dd>{dateLabel(listing.createdAt)}</dd></div>
       </dl>
@@ -272,7 +306,7 @@ export default function TeacherListingsPage() {
         notify('Listing changes saved.')
       } else {
         await api.post('/listings', values)
-        notify(values.status === 'draft' ? 'Listing saved as a draft.' : 'Listing created and published.')
+        notify(values.status === 'draft' ? 'Listing saved as a draft.' : 'Listing created. Publish it when it is ready for students.')
       }
       setModalOpen(false)
       setEditing(null)
@@ -315,6 +349,21 @@ export default function TeacherListingsPage() {
       setRefresh((value) => value + 1)
     } catch (requestError) {
       setError(messageFrom(requestError, 'Could not change listing status.'))
+    } finally {
+      setStatusSavingId('')
+    }
+  }
+
+  const changePublication = async (listing, published) => {
+    setStatusSavingId(String(listing._id))
+    setError('')
+    try {
+      await api.put(`/listings/${encodeURIComponent(listing._id)}`, { published })
+      notify(published ? 'Listing published and visible to students.' : 'Listing unpublished and hidden from public course pages.')
+      setLoading(true)
+      setRefresh((value) => value + 1)
+    } catch (requestError) {
+      setError(messageFrom(requestError, 'Could not change listing publication.'))
     } finally {
       setStatusSavingId('')
     }
@@ -431,6 +480,7 @@ export default function TeacherListingsPage() {
             onAssignments={openAssignments}
             onDelete={deleteListing}
             onStatusChange={changeStatus}
+            onPublicationChange={changePublication}
             busy={statusSavingId === String(listing._id)}
           />)}
         </section>

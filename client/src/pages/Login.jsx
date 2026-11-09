@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { FiArrowRight, FiBookOpen, FiCheck, FiEye, FiEyeOff, FiLock, FiTrendingUp, FiUser, FiUserPlus } from 'react-icons/fi'
+import { FiArrowRight, FiBookOpen, FiEye, FiEyeOff, FiLock, FiUser } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import '../styles/login.css'
@@ -76,7 +76,7 @@ export default function Login() {
 
           {!isConfigured && (
             <div className="config-note" role="status">
-              Demo mode is active. Configure Firebase in <code>client/.env</code> for real authentication.
+              Authentication is unavailable until Firebase is configured in <code>client/.env</code>.
             </div>
           )}
 
@@ -127,7 +127,7 @@ export default function Login() {
                 <input type="checkbox" {...register('remember')} />
                 <span>Keep me signed in</span>
               </label>
-              <button className="forgot-password" type="button" onClick={requestPasswordReset} disabled={resetSending}>
+              <button className="forgot-password" type="button" onClick={requestPasswordReset} disabled={resetSending || !isConfigured}>
                 {resetSending ? 'Sending link...' : 'Forgot password?'}
               </button>
             </div>
@@ -135,19 +135,19 @@ export default function Login() {
             {submitError && <p className="signin-feedback signin-error" role="alert">{submitError}</p>}
             {resetNotice && <p className="signin-feedback signin-notice" role="status">{resetNotice}</p>}
 
-            <button className="signin-submit" type="submit" disabled={isSubmitting || resetSending}>
+            <button className="signin-submit" type="submit" disabled={isSubmitting || resetSending || !isConfigured}>
               {isSubmitting
                 ? <><span className="signin-spinner" aria-hidden="true" /> Signing in...</>
                 : <>Sign in <FiArrowRight aria-hidden="true" /></>}
             </button>
           </form>
 
-          <div className="signin-divider"><span>or</span></div>
+          {isConfigured && <div className="signin-divider"><span>or</span></div>}
 
-          <button className="signin-google" type="button" onClick={signInWithGoogle} disabled={socialLoading || isSubmitting}>
+          {isConfigured && <button className="signin-google" type="button" onClick={signInWithGoogle} disabled={socialLoading || isSubmitting}>
             <GoogleIcon />
             {socialLoading ? 'Connecting to Google...' : 'Continue with Google'}
-          </button>
+          </button>}
 
           <p className="signin-register">
             New to TeachOS? <Link to="/register">Create an account</Link>
@@ -165,39 +165,11 @@ export default function Login() {
             <h2>Teach more.<br />Manage less.</h2>
             <p>Courses, students, assignments and payouts, all in one calm workspace.</p>
           </div>
-          <div className="showcase-visual">
-            <div className="showcase-dashboard">
-              <div className="showcase-dashboard-heading">
-                <div>
-                  <span className="showcase-eyebrow">Monthly earnings</span>
-                  <strong>$4,820</strong>
-                </div>
-                <span className="showcase-live"><i /> Live</span>
-              </div>
-              <div className="showcase-chart" aria-label="Example monthly earnings chart">
-                {[38, 52, 46, 68, 60, 88].map((height, index) => (
-                  <span className={index === 5 ? 'showcase-bar is-highlighted' : 'showcase-bar'} style={{ '--bar-height': `${height}%`, '--bar-index': index }} key={height} />
-                ))}
-                <svg className="showcase-chart-line" viewBox="0 0 420 150" preserveAspectRatio="none" aria-hidden="true">
-                  <path d="M5 118 C45 110, 53 89, 88 95 S137 104, 170 76 S224 68, 253 82 S302 58, 335 46 S380 30, 415 12" />
-                </svg>
-              </div>
-              <div className="showcase-stats">
-                <div><span>Students</span><strong>1,284</strong></div>
-                <div><span>Courses</span><strong>12</strong></div>
-                <div><span>Rating</span><strong>4.9</strong></div>
-              </div>
-            </div>
-            <div className="showcase-float showcase-engagement">
-              <span className="showcase-float-icon"><FiTrendingUp /></span>
-              <span><small>Engagement</small><strong>+24%</strong></span>
-            </div>
-            <div className="showcase-float showcase-graded">
-              <span className="showcase-progress"><FiCheck /></span>
-              <span><small>Assignments graded</small><strong>142 <small>/ 190</small></strong></span>
-            </div>
-            <div className="showcase-enrollment"><FiUserPlus /><span>New student enrolled</span></div>
-          </div>
+          <ul className="showcase-feature-list">
+            <li>Manage courses and online classes</li>
+            <li>Track enrollments and attendance</li>
+            <li>Review confirmed payment records</li>
+          </ul>
         </div>
         <p className="showcase-caption">A little more focus for the work that matters.</p>
       </section>
@@ -219,7 +191,7 @@ function getSignInErrorMessage(error) {
   if (error.code === 'auth/invalid-api-key' || error.code === 'auth/api-key-not-valid') return 'Firebase rejected the app API key. Check VITE_FIREBASE_API_KEY in client/.env and restart the client.'
   if (error.code === 'auth/unauthorized-domain') return 'This website domain is not authorized in Firebase. Add localhost under Firebase Authentication → Settings → Authorized domains.'
   if (error.code === 'auth/network-request-failed') return 'Could not reach Firebase Authentication. Check your internet connection and try again.'
-  if (error.code === 'auth/demo-mode') return 'Password reset requires Firebase authentication. Configure Firebase in client/.env first.'
+  if (error.code === 'auth/configuration-not-found') return 'Authentication is unavailable. Configure Firebase in client/.env and restart the app.'
   if (error.code === 'ERR_NETWORK') return 'TeachOS could not reach its API. Check that the server is running and its CORS settings include this site.'
   return error.response?.data?.message || 'We could not complete sign-in. Check your details and Firebase Authentication settings.'
 }

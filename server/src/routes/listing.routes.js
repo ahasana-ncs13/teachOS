@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { getDatabase } from '../db.js'
-import { requirePlatformActive, requireRole, verifyToken } from '../middleware/auth.js'
+import { requirePlatformActive, requireRole, requireTeacherSubscriptionAccess, verifyToken } from '../middleware/auth.js'
 import { notifyListingStudents } from '../services/notification.service.js'
 import * as listingService from '../services/listing.service.js'
 import { parseObjectId, sanitizeInput, validatePagination, validateSchema } from '../utils/validation.js'
@@ -349,7 +349,7 @@ listingRouter.get('/listings/:id/assignments', verifyToken, requireRole('teacher
   }
 })
 
-listingRouter.post('/listings/:id/assignments', verifyToken, requireRole('teacher'), async (req, res, next) => {
+listingRouter.post('/listings/:id/assignments', verifyToken, requireRole('teacher'), requireTeacherSubscriptionAccess, async (req, res, next) => {
   try {
     const listingId = parseObjectId(req.params.id, 'listingId')
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
@@ -417,12 +417,13 @@ listingRouter.get('/listings/:id', async (req, res, next) => {
  * - PUT /api/listings/:id
  * - DELETE /api/listings/:id
  */
-listingRouter.post('/listings', verifyToken, requireRole('teacher'), requirePlatformActive, async (req, res, next) => {
+listingRouter.post('/listings', verifyToken, requireRole('teacher'), requireTeacherSubscriptionAccess, requirePlatformActive, async (req, res, next) => {
   try {
     rejectQueryParameters(req.query)
     const body = sanitizeInput(req.body, [
       'name',
       'courseId',
+      'pricingType',
       'deliveryMode',
       'days',
       'startTime',
@@ -440,6 +441,7 @@ listingRouter.post('/listings', verifyToken, requireRole('teacher'), requirePlat
     validateSchema(body, {
       name: { required: true, type: 'string', min: 3, max: 150 },
       courseId: { required: true, type: 'string', min: 24, max: 24 },
+      pricingType: { required: false, type: 'string', enum: ['ONE_TIME', 'MONTHLY_SUBSCRIPTION'] },
       deliveryMode: { required: true, type: 'string', enum: ['live', 'recorded'] },
       days: { required: true },
       startTime: { required: true, type: 'string' },
@@ -463,12 +465,13 @@ listingRouter.post('/listings', verifyToken, requireRole('teacher'), requirePlat
   }
 })
 
-listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'), requirePlatformActive, async (req, res, next) => {
+listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'), requireTeacherSubscriptionAccess, requirePlatformActive, async (req, res, next) => {
   try {
     rejectQueryParameters(req.query)
     const body = sanitizeInput(req.body, [
       'name',
       'courseId',
+      'pricingType',
       'deliveryMode',
       'category',
       'admissionFee',
@@ -483,6 +486,7 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
       'endTime',
       'capacity',
       'status',
+      'published',
     ])
     if (!Object.keys(body).length) {
       const error = new Error('Provide at least one listing field to update.')
@@ -493,6 +497,7 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
 
     validateSchema(body, {
       name: { required: false, type: 'string', min: 3, max: 150 },
+      pricingType: { required: false, type: 'string', enum: ['ONE_TIME', 'MONTHLY_SUBSCRIPTION'] },
       category: { required: false, type: 'string', enum: ['Online'] },
       admissionFee: { required: false, type: 'number' },
       monthlyTuitionFee: { required: false, type: 'number' },
@@ -507,6 +512,7 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
       endTime: { required: false, type: 'string' },
       capacity: { required: false, type: 'number' },
       status: { required: false, type: 'string', enum: ['active', 'draft', 'completed'] },
+      published: { required: false, type: 'boolean' },
     })
     validateSchedule(body)
     validateListingPricing(body)
@@ -518,7 +524,7 @@ listingRouter.put('/listings/:id', verifyToken, requireRole('teacher', 'admin'),
   }
 })
 
-listingRouter.delete('/listings/:id', verifyToken, requireRole('teacher', 'admin'), requirePlatformActive, async (req, res, next) => {
+listingRouter.delete('/listings/:id', verifyToken, requireRole('teacher', 'admin'), requireTeacherSubscriptionAccess, requirePlatformActive, async (req, res, next) => {
   try {
     rejectQueryParameters(req.query)
     const result = await listingService.softDeleteListing(req, req.params.id)

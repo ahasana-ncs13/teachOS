@@ -5,17 +5,19 @@ const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function listingValues(listing) {
   const startDate = listing?.startDate ? new Date(listing.startDate) : null
+  const pricingType = listing?.pricingType || (listing?.monthlyTuitionFee === 0 && Number(listing?.fee) > 0 ? 'ONE_TIME' : 'MONTHLY_SUBSCRIPTION')
   return {
     name: listing?.name || '',
     courseId: listing?.courseId ? String(listing.courseId) : '',
+    pricingType,
     deliveryMode: listing?.deliveryMode || 'live',
     location: listing?.location || '',
     days: Array.isArray(listing?.days) ? listing.days : [],
     startTime: listing?.startTime || '',
     endTime: listing?.endTime || '',
     capacity: listing?.capacity ? String(listing.capacity) : '',
-    admissionFee: listing?.admissionFee === undefined || listing?.admissionFee === null ? '' : String(listing.admissionFee),
-    monthlyTuitionFee: listing?.monthlyTuitionFee === undefined || listing?.monthlyTuitionFee === null ? '' : String(listing.monthlyTuitionFee),
+    admissionFee: listing?.admissionFee === undefined || listing?.admissionFee === null ? (pricingType === 'ONE_TIME' && listing?.fee ? String(listing.fee) : '') : String(listing.admissionFee),
+    monthlyTuitionFee: listing?.monthlyTuitionFee === undefined || listing?.monthlyTuitionFee === null ? (pricingType === 'ONE_TIME' ? '0' : '') : String(listing.monthlyTuitionFee),
     description: listing?.description || '',
     startDate: startDate && !Number.isNaN(startDate.getTime()) ? startDate.toISOString().slice(0, 10) : '',
     image: listing?.image || '',
@@ -39,13 +41,16 @@ function validate(values) {
   if (!/^\d+$/.test(values.capacity) || !Number.isSafeInteger(capacity) || capacity <= 0) {
     errors.capacity = 'Capacity must be a positive whole number.'
   }
+  const isOneTime = values.pricingType === 'ONE_TIME'
   const admissionFee = Number(values.admissionFee)
   if (values.admissionFee === '' || !Number.isFinite(admissionFee) || admissionFee < 0) {
-    errors.admissionFee = 'Enter a valid non-negative admission fee.'
+    errors.admissionFee = isOneTime ? 'Enter a valid non-negative one-time fee.' : 'Enter a valid non-negative admission fee.'
   }
-  const monthlyTuitionFee = Number(values.monthlyTuitionFee)
-  if (values.monthlyTuitionFee === '' || !Number.isFinite(monthlyTuitionFee) || monthlyTuitionFee < 0) {
-    errors.monthlyTuitionFee = 'Enter a valid non-negative monthly tuition fee.'
+  if (!isOneTime) {
+    const monthlyTuitionFee = Number(values.monthlyTuitionFee)
+    if (values.monthlyTuitionFee === '' || !Number.isFinite(monthlyTuitionFee) || monthlyTuitionFee < 0) {
+      errors.monthlyTuitionFee = 'Enter a valid non-negative monthly tuition fee.'
+    }
   }
   if (values.image) {
     try {
@@ -155,12 +160,15 @@ export default function CreateListingModal({
     setErrors(nextErrors)
     if (Object.values(nextErrors).some(Boolean)) return
 
+    const isOneTime = values.pricingType === 'ONE_TIME'
     const status = editing ? undefined : event.nativeEvent.submitter?.value || 'active'
     onSubmit({
       ...values,
+      pricingType: values.pricingType,
       capacity: Number(values.capacity),
-      admissionFee: Number(values.admissionFee),
-      monthlyTuitionFee: Number(values.monthlyTuitionFee),
+      admissionFee: Number(values.admissionFee || 0),
+      monthlyTuitionFee: isOneTime ? 0 : Number(values.monthlyTuitionFee || 0),
+      fee: isOneTime ? Number(values.admissionFee || 0) : Number(values.monthlyTuitionFee || 0),
       status,
     })
   }
@@ -336,28 +344,104 @@ export default function CreateListingModal({
             </label>
 
             <div className="listing-field listing-field-wide listing-pricing-section">
-              <legend>Payment &amp; Pricing</legend>
-              <p className="listing-pricing-note">Student charges for joining and attending this course. All amounts are in Bangladeshi taka (৳).</p>
-              <div className="listing-pricing-grid">
-                <label className="listing-field">
-                  <span>Admission Fee <b aria-hidden="true">*</b></span>
-                  <span className="listing-fee-badge one-time">One-time</span>
-                  <span className="listing-currency-input"><b>৳</b><input type="number" min="0" step="0.01" value={values.admissionFee} onChange={(event) => updateField('admissionFee', event.target.value)} placeholder="e.g., 1000" aria-invalid={Boolean(errors.admissionFee)} /></span>
-                  <small className="listing-helper-text">One-time admission charge payable when a student joins this course.</small>
-                  {errors.admissionFee && <small id="listing-admission-error" className="listing-field-error">{errors.admissionFee}</small>}
+              <legend>Payment &amp; Pricing Model</legend>
+              <p className="listing-pricing-note">Select how students pay for this course. All amounts are in Bangladeshi taka (৳).</p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '14px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: `2px solid ${values.pricingType === 'ONE_TIME' ? '#4f46e5' : '#e5e7eb'}`,
+                  background: values.pricingType === 'ONE_TIME' ? '#eef2ff' : '#fff',
+                  cursor: 'pointer',
+                }}>
+                  <input
+                    type="radio"
+                    name="pricingType"
+                    value="ONE_TIME"
+                    checked={values.pricingType === 'ONE_TIME'}
+                    onChange={() => {
+                      updateField('pricingType', 'ONE_TIME')
+                      updateField('monthlyTuitionFee', '0')
+                    }}
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div>
+                    <strong style={{ display: 'block', fontSize: '13px', color: '#1f2937' }}>One-Time Payment</strong>
+                    <span style={{ fontSize: '11px', color: '#6b7280' }}>Student pays once for lifetime course access</span>
+                  </div>
                 </label>
-                <label className="listing-field">
-                  <span>Monthly Tuition Fee <b aria-hidden="true">*</b></span>
-                  <span className="listing-fee-badge recurring">Recurring monthly</span>
-                  <span className="listing-currency-input"><b>৳</b><input type="number" min="0" step="0.01" value={values.monthlyTuitionFee} onChange={(event) => updateField('monthlyTuitionFee', event.target.value)} placeholder="e.g., 1500" aria-invalid={Boolean(errors.monthlyTuitionFee)} /></span>
-                  <small className="listing-helper-text">Recurring monthly tuition fee payable by each enrolled student.</small>
-                  {errors.monthlyTuitionFee && <small id="listing-tuition-error" className="listing-field-error">{errors.monthlyTuitionFee}</small>}
+
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: `2px solid ${values.pricingType === 'MONTHLY_SUBSCRIPTION' ? '#4f46e5' : '#e5e7eb'}`,
+                  background: values.pricingType === 'MONTHLY_SUBSCRIPTION' ? '#eef2ff' : '#fff',
+                  cursor: 'pointer',
+                }}>
+                  <input
+                    type="radio"
+                    name="pricingType"
+                    value="MONTHLY_SUBSCRIPTION"
+                    checked={values.pricingType === 'MONTHLY_SUBSCRIPTION'}
+                    onChange={() => {
+                      updateField('pricingType', 'MONTHLY_SUBSCRIPTION')
+                      if (values.monthlyTuitionFee === '0') updateField('monthlyTuitionFee', '')
+                    }}
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div>
+                    <strong style={{ display: 'block', fontSize: '13px', color: '#1f2937' }}>Monthly Subscription</strong>
+                    <span style={{ fontSize: '11px', color: '#6b7280' }}>Student pays a recurring monthly fee for access</span>
+                  </div>
                 </label>
               </div>
+
+              {values.pricingType === 'ONE_TIME' ? (
+                <div className="listing-pricing-grid" style={{ gridTemplateColumns: '1fr' }}>
+                  <label className="listing-field">
+                    <span>One-Time Course Fee <b aria-hidden="true">*</b></span>
+                    <span className="listing-fee-badge one-time">Lifetime Access</span>
+                    <span className="listing-currency-input"><b>৳</b><input type="number" min="0" step="0.01" value={values.admissionFee} onChange={(event) => updateField('admissionFee', event.target.value)} placeholder="e.g., 2500" aria-invalid={Boolean(errors.admissionFee)} /></span>
+                    <small className="listing-helper-text">Single upfront payment for lifetime course access. No recurring charges.</small>
+                    {errors.admissionFee && <small id="listing-admission-error" className="listing-field-error">{errors.admissionFee}</small>}
+                  </label>
+                </div>
+              ) : (
+                <div className="listing-pricing-grid">
+                  <label className="listing-field">
+                    <span>Admission Fee <small>(optional)</small></span>
+                    <span className="listing-fee-badge one-time">One-time initial fee</span>
+                    <span className="listing-currency-input"><b>৳</b><input type="number" min="0" step="0.01" value={values.admissionFee} onChange={(event) => updateField('admissionFee', event.target.value)} placeholder="e.g., 1000" aria-invalid={Boolean(errors.admissionFee)} /></span>
+                    <small className="listing-helper-text">One-time admission charge payable when student first joins.</small>
+                    {errors.admissionFee && <small id="listing-admission-error" className="listing-field-error">{errors.admissionFee}</small>}
+                  </label>
+                  <label className="listing-field">
+                    <span>Monthly Tuition Fee <b aria-hidden="true">*</b></span>
+                    <span className="listing-fee-badge recurring">Recurring monthly</span>
+                    <span className="listing-currency-input"><b>৳</b><input type="number" min="0" step="0.01" value={values.monthlyTuitionFee} onChange={(event) => updateField('monthlyTuitionFee', event.target.value)} placeholder="e.g., 1500" aria-invalid={Boolean(errors.monthlyTuitionFee)} /></span>
+                    <small className="listing-helper-text">Recurring monthly tuition fee payable by enrolled students.</small>
+                    {errors.monthlyTuitionFee && <small id="listing-tuition-error" className="listing-field-error">{errors.monthlyTuitionFee}</small>}
+                  </label>
+                </div>
+              )}
+
               <div className="listing-pricing-preview">
-                <strong>Payment breakdown</strong>
-                <div className="listing-pricing-row"><span>First payment (admission + first month tuition)</span><strong>{money(initialPayment)}</strong></div>
-                <div className="listing-pricing-row"><span>From next month</span><strong>{money(monthlyTuitionFee)}/month</strong></div>
+                <strong>Payment preview</strong>
+                {values.pricingType === 'ONE_TIME' ? (
+                  <div className="listing-pricing-row"><span>Total one-time payment for lifetime access</span><strong>{money(admissionFee)}</strong></div>
+                ) : (
+                  <>
+                    <div className="listing-pricing-row"><span>First payment (admission + first month tuition)</span><strong>{money(initialPayment)}</strong></div>
+                    <div className="listing-pricing-row"><span>From next month</span><strong>{money(monthlyTuitionFee)}/month</strong></div>
+                  </>
+                )}
               </div>
             </div>
 

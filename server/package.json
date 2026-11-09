@@ -6,13 +6,13 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "migrate:listings:owner": "node src/scripts/migrate-listing-owners.js",
-    "seed:teacher-subjects": "node src/scripts/seed-teacher-subjects.js"
+    "migrate:listings:owner": "node src/scripts/migrate-listing-owners.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
+    "firebase-admin": "^13.4.0",
     "jose": "^6.2.13",
     "mongodb": "^7.6.0",
     "stripe": "^23.1.0"

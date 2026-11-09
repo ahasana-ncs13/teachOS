@@ -5,8 +5,6 @@
 .payments-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 39px; padding: 0 14px; border: 0; border-radius: 7px; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; transition: background .18s, transform .18s; }
 .payments-primary:hover { transform: translateY(-1px); background: var(--blue-deep); }
 .payments-primary:focus-visible, .payments-secondary:focus-visible, .payout-amount button:focus-visible, .transaction-search:focus-within, .transaction-status-filter:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
-.payments-demo-banner { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--tint); color: var(--muted); font-size: 10px; line-height: 1.5; }
-.payments-demo-banner svg { flex: 0 0 auto; color: var(--blue); }
 .payments-overview { display: grid; grid-template-columns: minmax(0, 2fr) minmax(275px, 1fr); gap: 17px; margin-bottom: 22px; align-items: stretch; }
 .payments-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .payments-metric { position: relative; min-height: 173px; overflow: hidden; padding: 17px 15px; border: 1px solid rgba(220,233,255,.85); border-radius: 10px; background: rgba(255,255,255,.84); box-shadow: 0 3px 9px rgba(8,51,68,.045); }
@@ -48,7 +46,7 @@
 .transaction-search input::placeholder { color: var(--soft); }
 .transaction-status-filter select { max-width: 115px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 9px; cursor: pointer; }
 .transactions-scroll { overflow-x: auto; }
-.transactions-table { width: 100%; min-width: 750px; border-collapse: collapse; text-align: left; }
+.transactions-table { width: 100%; min-width: 920px; border-collapse: collapse; text-align: left; }
 .transactions-table th { padding: 12px 13px; border-bottom: 1px solid var(--line); background: var(--tint); color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
 .transactions-table td { padding: 13px; border-bottom: 1px solid #eef0f6; color: var(--muted); font-size: 10px; white-space: nowrap; }
 .transactions-table tbody tr:last-child td { border-bottom: 0; }
@@ -58,6 +56,12 @@
 .transaction-amount { color: var(--blue) !important; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 .transaction-amount.outgoing { color: var(--ink) !important; }
 .transaction-status-column { text-align: center; }
+.payout-review-column { min-width: 250px; }
+.payout-review-actions { display: flex; align-items: center; gap: 5px; }
+.payout-review-actions input { width: 118px; min-width: 0; padding: 6px 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); font-size: 9px; }
+.payout-review-actions button { min-height: 27px; padding: 0 7px; border: 0; border-radius: 5px; background: var(--blue); color: white; font-size: 8px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.payout-review-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.payout-review-actions .reject-payout { border: 1px solid var(--line); background: white; color: var(--muted); }
 .transaction-status { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: 8px; font-weight: 700; }
 .transaction-status.paid { background: var(--tint-3); color: var(--blue-deep); }
 .transaction-status.pending { background: var(--tint-2); color: var(--muted); }

@@ -1,7 +1,38 @@
 import { ObjectId } from 'mongodb'
+import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app'
+import { getAuth } from 'firebase-admin/auth'
 import { getDatabase } from '../db.js'
 import { parseObjectId } from '../utils/validation.js'
+import { excludeLegacySampleUsers } from '../utils/sampleData.js'
 import { writeAuditLog } from './audit.service.js'
+
+function getFirebaseAdminAuth() {
+  let app = getApps().find((item) => item.name === 'teachos-admin')
+  if (!app) {
+    let credential
+    if (process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON) {
+      let serviceAccount
+      try {
+        serviceAccount = JSON.parse(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON)
+      } catch {
+        const error = new Error('FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON must contain valid service-account JSON.')
+        error.status = 503
+        error.code = 'FIREBASE_ADMIN_CONFIGURATION_INVALID'
+        throw error
+      }
+      credential = cert(serviceAccount)
+    } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      credential = applicationDefault()
+    } else {
+      const error = new Error('Configure Firebase Admin credentials to provision staff accounts.')
+      error.status = 503
+      error.code = 'FIREBASE_ADMIN_NOT_CONFIGURED'
+      throw error
+    }
+    app = initializeApp({ credential, projectId: process.env.FIREBASE_PROJECT_ID }, 'teachos-admin')
+  }
+  return getAuth(app)
+}
 
 /**
  * Service to manage tenant users under the multi-tenancy model.
@@ -41,9 +72,28 @@ export async function createTenantUser(req, { email, role, fullName, platformId 
     throw error
   }
 
+  const auth = getFirebaseAdminAuth()
+  let identity
+  try {
+    identity = await auth.createUser({
+      email: normalizedEmail,
+      displayName: fullName.trim(),
+      emailVerified: false,
+      disabled: false,
+    })
+    await auth.setCustomUserClaims(identity.uid, { role })
+  } catch (error) {
+    if (identity?.uid) await auth.deleteUser(identity.uid)
+    if (error.code === 'auth/email-already-exists') {
+      error.status = 409
+      error.code = 'USER_ALREADY_EXISTS'
+    }
+    throw error
+  }
+
   const now = new Date()
   const newUser = {
-    uid: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    uid: identity.uid,
     email: normalizedEmail,
     fullName: fullName.trim(),
     role,
@@ -54,7 +104,15 @@ export async function createTenantUser(req, { email, role, fullName, platformId 
     updatedAt: now,
   }
 
-  const result = await users.insertOne(newUser)
+  let passwordSetupLink
+  try {
+    await users.insertOne(newUser)
+    passwordSetupLink = await auth.generatePasswordResetLink(normalizedEmail)
+  } catch (error) {
+    await users.deleteOne({ uid: identity.uid })
+    await auth.deleteUser(identity.uid)
+    throw error
+  }
 
   await writeAuditLog({
     platformId: targetPlatformId,
@@ -66,7 +124,8 @@ export async function createTenantUser(req, { email, role, fullName, platformId 
     meta: { email: normalizedEmail, role },
   })
 
-  return { _id: result.insertedId, ...newUser }
+  const savedUser = await users.findOne({ uid: identity.uid })
+  return { user: savedUser, passwordSetupLink }
 }
 
 export async function listTenantUsers(req, { page = 1, limit = 20, role, search }) {
@@ -93,15 +152,16 @@ export async function listTenantUsers(req, { page = 1, limit = 20, role, search 
 
   const skip = (page - 1) * limit
   const collection = database.collection('users')
+  const visibleFilter = excludeLegacySampleUsers(filter)
 
   const [users, total] = await Promise.all([
     collection
-      .find(filter, { projection: { removedAt: 0, removedBy: 0 } })
+      .find(visibleFilter, { projection: { removedAt: 0, removedBy: 0 } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .toArray(),
-    collection.countDocuments(filter),
+    collection.countDocuments(visibleFilter),
   ])
 
   return {
@@ -113,6 +173,86 @@ export async function listTenantUsers(req, { page = 1, limit = 20, role, search 
       totalPages: Math.ceil(total / limit) || 1,
     },
   }
+}
+
+export async function listTeacherCourses(teacherId) {
+  const database = getDatabase()
+  const targetId = parseObjectId(teacherId, 'teacherId')
+  const teacher = await database.collection('users').findOne(
+    excludeLegacySampleUsers({ _id: targetId, role: 'teacher', status: { $ne: 'removed' } }),
+    { projection: { uid: 1 } },
+  )
+  if (!teacher) {
+    const error = new Error('Teacher not found')
+    error.status = 404
+    error.code = 'TEACHER_NOT_FOUND'
+    throw error
+  }
+  const listings = await database.collection('listings').find(
+    { teacherUid: teacher.uid, status: { $ne: 'removed' } },
+    { projection: { teacherUid: 0, platformId: 0, removedAt: 0, removedBy: 0 } },
+  ).sort({ createdAt: -1 }).toArray()
+  const listingIds = listings.map((listing) => listing._id)
+  const enrollments = listingIds.length
+    ? await database.collection('studentEnrollments').aggregate([
+      { $match: { listingId: { $in: listingIds }, status: 'active' } },
+      { $group: { _id: { listingId: '$listingId', studentUid: '$studentUid' } } },
+    ]).toArray()
+    : []
+  const countsByListing = new Map()
+  const teacherStudentUids = new Set()
+  for (const enrollment of enrollments) {
+    const listingKey = String(enrollment._id.listingId)
+    countsByListing.set(listingKey, (countsByListing.get(listingKey) || 0) + 1)
+    if (enrollment._id.studentUid) teacherStudentUids.add(enrollment._id.studentUid)
+  }
+  const courses = listings.map((listing) => ({
+    ...listing,
+    enrolledStudents: countsByListing.get(String(listing._id)) || 0,
+  }))
+  return {
+    courses,
+    totalStudents: teacherStudentUids.size,
+    totalEnrollments: courses.reduce((total, course) => total + course.enrolledStudents, 0),
+  }
+}
+
+export async function listCourseStudents(teacherId, listingId) {
+  const database = getDatabase()
+  const targetId = parseObjectId(teacherId, 'teacherId')
+  const courseId = parseObjectId(listingId, 'listingId')
+  const teacher = await database.collection('users').findOne(
+    excludeLegacySampleUsers({ _id: targetId, role: 'teacher', status: { $ne: 'removed' } }),
+    { projection: { uid: 1 } },
+  )
+  if (!teacher) {
+    const error = new Error('Teacher not found')
+    error.status = 404
+    error.code = 'TEACHER_NOT_FOUND'
+    throw error
+  }
+  const listing = await database.collection('listings').findOne(
+    { _id: courseId, teacherUid: teacher.uid, status: { $ne: 'removed' } },
+    { projection: { _id: 1, name: 1 } },
+  )
+  if (!listing) {
+    const error = new Error('Course not found for this teacher')
+    error.status = 404
+    error.code = 'COURSE_NOT_FOUND'
+    throw error
+  }
+  const enrollmentRecords = await database.collection('studentEnrollments').find(
+    { listingId: courseId, status: 'active' },
+    { projection: { studentUid: 1, studentName: 1, studentEmail: 1, enrolledAt: 1, paymentStatus: 1 } },
+  ).sort({ enrolledAt: -1 }).toArray()
+  const studentsByUid = new Map()
+  for (const enrollment of enrollmentRecords) {
+    if (enrollment.studentUid && !studentsByUid.has(enrollment.studentUid)) {
+      studentsByUid.set(enrollment.studentUid, enrollment)
+    }
+  }
+  const students = [...studentsByUid.values()]
+  return { listing, students, studentCount: students.length }
 }
 
 export async function softDeleteTenantUser(req, userId) {

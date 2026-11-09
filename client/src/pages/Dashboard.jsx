@@ -10,6 +10,7 @@ const initials = (name) => name.split(/\s+/).map((part) => part[0]).join('').sli
 function Dashboard() {
   const { user, signOut } = useAuth()
   const [dashboard, setDashboard] = useState(null)
+  const [subscription, setSubscription] = useState(null)
   const [attendance, setAttendance] = useState([])
   const [search, setSearch] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -17,7 +18,9 @@ function Dashboard() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const uid = user?.uid || `demo-${user?.email || 'teacher'}`
+  const [subscriptionError, setSubscriptionError] = useState('')
+  const [subscriptionCheckoutBusy, setSubscriptionCheckoutBusy] = useState(false)
+  const uid = user.uid
   const currentClass = dashboard?.classes?.find((item) => item.id === dashboard.attendanceClassId) || dashboard?.classes?.[0]
 
   const fetchDashboard = useCallback(async () => {
@@ -39,6 +42,36 @@ function Dashboard() {
     })
     return () => { isCurrent = false }
   }, [fetchDashboard])
+
+  useEffect(() => {
+    let isCurrent = true
+    const sessionId = new URLSearchParams(window.location.search).get('subscription_session_id')
+    const loadSubscription = sessionId
+      ? api.get('/teacher/subscription/confirm', { params: { sessionId } }).then(({ data }) => (
+        data.status === 'paid' ? { data: { subscription: data.subscription } } : api.get('/teacher/subscription')
+      ))
+      : api.get('/teacher/subscription')
+    loadSubscription.then(({ data }) => {
+      if (!isCurrent) return
+      setSubscription(data.subscription)
+      if (sessionId) window.history.replaceState({}, '', window.location.pathname)
+    }).catch((requestError) => {
+      if (isCurrent) setSubscriptionError(requestError.response?.data?.message || 'Subscription status could not be loaded.')
+    })
+    return () => { isCurrent = false }
+  }, [])
+
+  const paySubscriptionBalance = async () => {
+    setSubscriptionCheckoutBusy(true)
+    setSubscriptionError('')
+    try {
+      const { data } = await api.post('/teacher/subscription/checkout')
+      window.location.assign(data.redirectUrl)
+    } catch (requestError) {
+      setSubscriptionError(requestError.response?.data?.message || 'Could not start Stripe checkout.')
+      setSubscriptionCheckoutBusy(false)
+    }
+  }
 
   const retryLoad = async () => {
     setLoading(true)
@@ -86,6 +119,7 @@ function Dashboard() {
   }
 
   const today = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())
+  const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'
   const teacherName = user?.displayName || user?.email?.split('@')[0] || 'Professor'
   const attendedCount = attendance.filter((item) => item.status).length
 
@@ -109,7 +143,7 @@ function Dashboard() {
         </button>
         <nav className="dashboard-nav" aria-label="Dashboard navigation">
           <a className="selected" href="#overview" onClick={() => setMenuOpen(false)}><FiGrid /> Dashboard</a>
-          <Link to="/dashboard/classes" onClick={() => setMenuOpen(false)}><FiBookOpen /> Classes</Link>
+          <Link to="/dashboard/teaching-studio" onClick={() => setMenuOpen(false)}><FiBookOpen /> Classes &amp; lessons</Link>
           <Link to="/dashboard/attendance" onClick={() => setMenuOpen(false)}><FiCheck /> Attendance</Link>
           <Link to="/dashboard/directory" onClick={() => setMenuOpen(false)}><FiUsers /> Directory</Link>
           <Link to="/dashboard/payments" onClick={() => setMenuOpen(false)}><FiBookOpen /> Payments</Link>
@@ -132,12 +166,41 @@ function Dashboard() {
         </header>
         <div className="dashboard-content">
           <div className="dashboard-page-heading">
-            <div><p className="dashboard-eyebrow">Teacher workspace</p><h1>Good morning, {teacherName}</h1><p>Here is your overview for today, {today}.</p></div>
+            <div><p className="dashboard-eyebrow">Teacher workspace</p><h1>{greeting}, {teacherName}</h1><p>Here is your overview for today, {today}.</p></div>
             <a className="dashboard-secondary-button" href="#today-lessons"><FiCalendar /> Schedule</a>
           </div>
 
           {error && <div className="dashboard-error" role="alert">{error}<button type="button" onClick={retryLoad}>Try again</button></div>}
           {notice && <div className="dashboard-success" role="status">{notice}</div>}
+          {subscriptionError && <div className="dashboard-error" role="alert">{subscriptionError}</div>}
+          {subscription && <section className={`teacher-subscription-card ${subscription.status}`} aria-label="Teacher subscription status">
+            <div>
+              <span className="dashboard-eyebrow">Platform access</span>
+              <h2>{subscription.status === 'trialing' ? 'One-month free trial' : subscription.status === 'suspended' ? 'Teacher workspace suspended' : subscription.amountDue ? 'Platform fee payment required' : 'Teacher workspace active'}</h2>
+              <p>{subscription.status === 'trialing'
+                ? `Full access through ${new Date(subscription.trialEndsAt).toLocaleDateString()}.`
+                : 'After the trial, TeachOS uses the existing 5% share of confirmed income as the platform fee; this does not add another commission.'}</p>
+              {subscription.warning && <strong role="alert">{subscription.warning}</strong>}
+              {subscription.status === 'suspended' && <strong role="alert">Your account is suspended after {subscription.maxWarnings} unpaid warnings. Pay the outstanding balance to restore access.</strong>}
+            </div>
+            <div className="teacher-subscription-balance">
+              <span>{subscription.status === 'trialing' ? 'Trial ends' : 'Outstanding balance'}</span>
+              <strong>{subscription.status === 'trialing' ? new Date(subscription.trialEndsAt).toLocaleDateString() : formatMoney(subscription.amountDue, subscription.currency)}</strong>
+              {subscription.amountDue > 0 && <button type="button" className="dashboard-primary-button" disabled={subscriptionCheckoutBusy} onClick={paySubscriptionBalance}>{subscriptionCheckoutBusy ? 'Opening checkout...' : 'Pay with Stripe'}</button>}
+            </div>
+          </section>}
+          <section className="dashboard-studio-grid" aria-label="Teaching studio shortcuts">
+            <Link className="dashboard-studio-card recorded" to="/dashboard/teaching-studio">
+              <span className="dashboard-studio-icon"><FiBookOpen aria-hidden="true" /></span>
+              <span><strong>Classes &amp; lessons</strong><small>Manage recorded lessons and live sessions in one place</small></span>
+              <FiChevronRight aria-hidden="true" />
+            </Link>
+            <Link className="dashboard-studio-card listings" to="/dashboard/listings">
+              <span className="dashboard-studio-icon"><FiBookOpen aria-hidden="true" /></span>
+              <span><strong>Course listings</strong><small>Manage your published courses and batches</small></span>
+              <FiChevronRight aria-hidden="true" />
+            </Link>
+          </section>
           {loading ? <div className="dashboard-loading" role="status">Loading your dashboard...</div> : dashboard && (
             <div className="dashboard-grid">
               <div className="dashboard-primary-column">
@@ -185,10 +248,15 @@ function Dashboard() {
 
               <div className="dashboard-secondary-column">
                 <section className="dashboard-panel earnings-panel" id="earnings">
-                  <div className="dashboard-panel-heading"><h2><FiBookOpen /> Earnings</h2><span className="sample-label">Overview</span></div>
-                  <div className="earnings-total"><span>Total earned this month</span><strong>{formatMoney(dashboard.earnings.total, dashboard.earnings.currency)}</strong></div>
-                  <div className="earnings-detail"><span>Pending commission</span><strong>{formatMoney(dashboard.earnings.pending, dashboard.earnings.currency)}</strong></div>
+                  <div className="dashboard-panel-heading"><h2><FiBookOpen /> Earnings</h2><span className="dashboard-overview-label">Overview</span></div>
+                  <div className="earnings-total"><span>Teacher earnings (95%)</span><strong>{formatMoney(dashboard.earnings.total, dashboard.earnings.currency)}</strong></div>
+                  <div className="earnings-detail"><span>Total course sales</span><strong>{formatMoney(dashboard.earnings.gross, dashboard.earnings.currency)}</strong></div>
+                  <div className="earnings-detail"><span>TeachOS commission (5%)</span><strong>{formatMoney(dashboard.earnings.commission, dashboard.earnings.currency)}</strong></div>
+                  <div className="earnings-detail"><span>Refunded</span><strong>{formatMoney(dashboard.earnings.refunded, dashboard.earnings.currency)}</strong></div>
+                  <div className="earnings-detail"><span>Pending payout requests</span><strong>{formatMoney(dashboard.earnings.pending, dashboard.earnings.currency)}</strong></div>
                   <div className="earnings-detail"><span>Next payout</span><strong>{dashboard.earnings.nextPayout || 'Not scheduled'}</strong></div>
+                  <h3 className="dashboard-subheading">Recent verified course payments</h3>
+                  {dashboard.earnings.recentTransactions?.length ? dashboard.earnings.recentTransactions.map((transaction) => <div className="payout-row" key={transaction.paymentId}><span>{transaction.courseName}</span><strong>{formatMoney(transaction.teacherRevenue, dashboard.earnings.currency)}</strong></div>) : <p className="dashboard-empty">No verified course payments yet.</p>}
                   <h3 className="dashboard-subheading">Recent payouts</h3>
                   {dashboard.earnings.payouts.length ? dashboard.earnings.payouts.map((payout) => <div className="payout-row" key={`${payout.date}-${payout.amount}`}><span><FiCheck /> {payout.date}</span><strong>{formatMoney(payout.amount, dashboard.earnings.currency)}</strong></div>) : <p className="dashboard-empty">No payouts recorded yet.</p>}
                 </section>

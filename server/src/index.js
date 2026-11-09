@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { GridFSBucket, ObjectId } from 'mongodb'
 import { closeDatabase, connectDatabase, getDatabase } from './db.js'
+import { requireRole as requireAuthenticatedRole, verifyToken as verifyFirebaseToken } from './middleware/auth.js'
 import { securityHeaders, rateLimiter } from './middleware/security.js'
 import { errorHandler } from './middleware/error.js'
 import { platformRouter } from './routes/platform.routes.js'
@@ -18,9 +19,13 @@ import { userRouter } from './routes/user.routes.js'
 import { listingRouter } from './routes/listing.routes.js'
 import { studentRouter } from './routes/student.routes.js'
 import { courseRouter } from './routes/course.routes.js'
-import { bkashRouter } from './routes/bkash.routes.js'
-import { stripeRouter } from './routes/stripe.routes.js'
 import { courseManagementRouter } from './routes/courseManagement.routes.js'
+import { teacherSubscriptionRouter } from './routes/teacherSubscription.routes.js'
+import { notificationRouter } from './routes/notification.routes.js'
+import { paymentRouter, stripeWebhookRouter } from './routes/payment.routes.js'
+import { getTeacherSubscription, createInitialTeacherSubscription } from './services/teacherSubscription.service.js'
+import { writeAuditLog } from './services/audit.service.js'
+import { startSettlementScheduler, stopSettlementScheduler } from './services/settlementScheduler.service.js'
 
 const app = express()
 const port = process.env.PORT || 5000
@@ -47,10 +52,11 @@ app.use(cors({
     return callback(new Error(`Origin ${requestOrigin} is not allowed by CORS`))
   },
 }))
+app.use('/api', stripeWebhookRouter)
 app.use(express.json({ limit: '100kb' }))
 
 app.use('/api', async (request, response, next) => {
-  if (request.path === '/health' || request.path === '/courses' || request.path === '/users/me' || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings') || request.path.startsWith('/student') || request.path.startsWith('/bkash') || request.path.startsWith('/stripe')) return next()
+  if (request.path === '/health' || request.path === '/courses' || request.path === '/users/me' || request.path.startsWith('/notifications') || request.path.startsWith('/platforms') || request.path.startsWith('/admin') || request.path.startsWith('/listings') || request.path.startsWith('/student') || request.path.startsWith('/stripe') || request.path.startsWith('/teacher') || request.path.startsWith('/course-management')) return next()
   const segments = request.path.split('/').filter(Boolean)
   let requestedUid
   try {
@@ -64,7 +70,6 @@ app.use('/api', async (request, response, next) => {
   }
 
   if (!firebaseJwkSet) {
-    if (process.env.NODE_ENV !== 'production' && requestedUid?.startsWith('demo-')) return next()
     return response.status(503).json({ message: 'Set FIREBASE_PROJECT_ID in server/.env to enable authenticated API access' })
   }
 
@@ -75,8 +80,10 @@ app.use('/api', async (request, response, next) => {
       algorithms: ['RS256'],
       issuer: `https://securetoken.google.com/${firebaseProjectId}`,
       audience: firebaseProjectId,
-      subject: requestedUid,
     })
+    if (requestedUid && requestedUid !== payload.sub) {
+      return response.status(403).json({ message: 'You cannot access another user’s data.', code: 'USER_ID_MISMATCH' })
+    }
     request.authUid = payload.sub
     request.authEmail = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : null
     request.authEmailVerified = payload.email_verified === true
@@ -104,6 +111,19 @@ app.use('/api', async (request, response, next) => {
       }
     }
 
+    if (request.user?.role === 'teacher' && request.method !== 'GET' && request.path !== '/users') {
+      const subscription = await getTeacherSubscription(getDatabase(), request.authUid)
+      if (subscription.status === 'past_due' || subscription.status === 'suspended') {
+        return response.status(402).json({
+          message: subscription.status === 'suspended'
+            ? 'Your teacher workspace is suspended after three unpaid platform-fee warnings. Settle the balance to restore access.'
+            : 'Your income-based platform fee is due. Settle the balance to continue using teacher tools.',
+          code: subscription.status === 'suspended' ? 'TEACHER_ACCOUNT_SUSPENDED' : 'TEACHER_SUBSCRIPTION_PAYMENT_REQUIRED',
+          subscription,
+        })
+      }
+    }
+
     if (!isProfileRegistration && canonicalRole !== 'teacher' && canonicalRole !== 'admin') {
       return response.status(403).json({ message: 'This workspace is available to teachers.', code: 'ROLE_FORBIDDEN' })
     }
@@ -114,7 +134,7 @@ app.use('/api', async (request, response, next) => {
   }
 })
 
-const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources', 'platforms', 'auditLogs', 'courses', 'listings', 'studentEnrollments', 'assignments', 'assignmentSubmissions', 'studentPayments', 'bkashPayments', 'stripePayments', 'courseModules', 'courseLessons', 'liveSessions', 'sessionAttendance']
+const collections = ['users', 'teacherDashboards', 'classes', 'students', 'attendanceRecords', 'lessonSessions', 'payments', 'payoutRequests', 'messages', 'officeHours', 'resources', 'notifications', 'platforms', 'auditLogs', 'courses', 'listings', 'studentEnrollments', 'assignments', 'assignmentSubmissions', 'studentPayments', 'studentLessonProgress', 'studentCourseCompletions', 'bkashPayments', 'stripePayments', 'courseModules', 'courseLessons', 'liveSessions', 'sessionAttendance', 'teacherSubscriptionInvoices', 'teacherSubscriptionPayments', 'googleMeetOAuthStates', 'revenueTransactions', 'teacherWallets', 'monthlyAdminSettlements', 'adminCommissionLedgers', 'teacherPendingLedgers', 'teacherAvailableLedgers', 'platformRevenues']
 
 async function ensureTeacherData(uid) {
   const database = getDatabase()
@@ -136,14 +156,35 @@ function validUid(uid) {
   return typeof uid === 'string' && uid.length > 0 && uid.length <= 256
 }
 
+async function getTeacherLiveEarnings(database, uid) {
+  const [summary] = await database.collection('studentPayments').aggregate([
+    { $match: { teacherUid: uid, gateway: { $in: ['stripe', 'bkash'] }, status: { $in: ['paid', 'refunded'] }, currency: 'BDT' } },
+    { $group: {
+      _id: null,
+      gross: { $sum: '$amount' },
+      commission: { $sum: { $max: [0, { $subtract: [{ $ifNull: ['$platformCommissionAmount', { $multiply: ['$amount', 0.05] }] }, { $ifNull: ['$commissionReversedAmount', 0] }] }] } },
+      net: { $sum: { $max: [0, { $subtract: [{ $ifNull: ['$teacherNetAmount', { $subtract: ['$amount', { $multiply: ['$amount', 0.05] }] }] }, { $ifNull: ['$teacherRevenueReversedAmount', 0] }] }] } },
+      refunded: { $sum: { $ifNull: ['$refundedAmount', 0] } },
+      transactions: { $sum: 1 },
+    } },
+  ]).toArray()
+  return {
+    gross: summary?.gross || 0,
+    commission: summary?.commission || 0,
+    net: summary?.net || 0,
+    refunded: summary?.refunded || 0,
+    transactions: summary?.transactions || 0,
+  }
+}
+
+function nextScheduledPayout(settings) {
+  if (!settings?.enabled || !settings.monthlyAmount) return null
+  return `Monthly on day ${settings.dayOfMonth}`
+}
+
 async function validateClassMeeting(database, uid, values) {
-  const classType = values.classType || 'in_person'
-  if (!['in_person', 'live'].includes(classType)) {
-    return { error: 'Choose an in-person class or a Google Meet live class.' }
-  }
-  if (classType === 'in_person') {
-    return { classType, listingId: null, meetUrl: '', classDate: '' }
-  }
+  const classType = values.classType
+  if (classType !== 'live') return { error: 'TeachOS supports online live classes only.' }
 
   const listingId = typeof values.listingId === 'string' ? values.listingId.trim() : ''
   const meetUrl = typeof values.meetUrl === 'string' ? values.meetUrl.trim() : ''
@@ -156,13 +197,9 @@ async function validateClassMeeting(database, uid, values) {
     return { error: 'Choose a valid date for the live class.' }
   }
 
-  const ownerUids = [uid]
-  if (process.env.NODE_ENV !== 'production' && uid.startsWith('demo-')) {
-    ownerUids.push(`demo-teacher:${uid.slice('demo-'.length)}`)
-  }
   const listing = await database.collection('listings').findOne({
     _id: new ObjectId(listingId),
-    teacherUid: { $in: ownerUids },
+    teacherUid: uid,
     status: 'active',
   })
   if (!listing) return { error: 'Select a course that belongs to your teacher account.' }
@@ -172,12 +209,11 @@ async function validateClassMeeting(database, uid, values) {
 app.post('/api/users', async (request, response) => {
   if (!databaseReady) return response.status(503).json({ message: 'Database is still starting. Please try again in a moment.' })
   const { uid, email, displayName, fullName, role, photoURL, provider, emailVerified, metadata } = request.body || {}
-  const localDemo = !firebaseJwkSet && process.env.NODE_ENV !== 'production' && typeof uid === 'string' && uid.startsWith('demo-')
   if (typeof uid !== 'string' || !uid || typeof email !== 'string' || email.length > 254 ||
       (displayName !== undefined && typeof displayName !== 'string') ||
       (fullName !== undefined && typeof fullName !== 'string') ||
       (metadata !== undefined && (!metadata || typeof metadata !== 'object' || Array.isArray(metadata))) ||
-      !role || (request.authUid && uid !== request.authUid) || (!request.authUid && !localDemo)) {
+      !role || uid !== request.authUid) {
     return response.status(400).json({ message: 'uid, email, and role are required' })
   }
 
@@ -191,7 +227,7 @@ app.post('/api/users', async (request, response) => {
     if (!existingUser && requestedRole === 'admin') {
       return response.status(403).json({ message: 'Admin accounts must be provisioned by TeachOS.', code: 'ADMIN_PROVISIONING_REQUIRED' })
     }
-    const verifiedEmail = request.authEmail || (localDemo ? String(email).trim().toLowerCase() : null)
+    const verifiedEmail = request.authEmail
     if (!verifiedEmail || verifiedEmail !== String(email).trim().toLowerCase()) {
       return response.status(403).json({ message: 'The profile email must match the signed-in account.', code: 'EMAIL_MISMATCH' })
     }
@@ -204,9 +240,12 @@ app.post('/api/users', async (request, response) => {
       role: existingUser?.role === 'superAdmin' ? 'admin' : existingUser?.role || requestedRole,
       photoURL: photoURL || null,
       provider: provider || 'password',
-      emailVerified: request.authEmailVerified ?? (localDemo ? true : Boolean(emailVerified)),
+      emailVerified: request.authEmailVerified ?? Boolean(emailVerified),
       metadata: metadata || {},
       updatedAt: now,
+      ...(!existingUser && requestedRole === 'teacher'
+        ? { subscription: createInitialTeacherSubscription(now) }
+        : existingUser?.subscription ? { subscription: existingUser.subscription } : {}),
     }
     await users.updateOne(
       { uid },
@@ -231,12 +270,15 @@ app.get('/api/dashboard/:uid', async (request, response) => {
     const { classList } = await ensureTeacherData(uid)
     const classes = classList.map(({ _id, uid: _uid, createdAt, updatedAt, ...item }) => item)
     const db = getDatabase()
-    const [studentCount, earnings, reservedPayouts, pendingPayouts, attendanceRecords, lessons, messages, officeHours, resources, payouts, payoutRequestCount] = await Promise.all([
+    const [studentCount, earnings, recentTransactions, reservedPayouts, pendingPayouts, attendanceRecords, lessons, messages, officeHours, resources, payouts, payoutRequestCount] = await Promise.all([
       db.collection('students').countDocuments({ uid, isSample: { $ne: true } }),
-      db.collection('payments').aggregate([
-        { $match: { uid, type: 'earning', isSample: { $ne: true } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]).toArray(),
+      getTeacherLiveEarnings(db, uid),
+      db.collection('studentPayments').find({
+        teacherUid: uid,
+        gateway: { $in: ['stripe', 'bkash'] },
+        status: { $in: ['paid', 'refunded'] },
+        currency: 'BDT',
+      }).sort({ paidAt: -1 }).limit(5).toArray(),
       db.collection('payoutRequests').aggregate([
         { $match: { uid, status: { $ne: 'rejected' }, isSample: { $ne: true } } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
@@ -253,18 +295,33 @@ app.get('/api/dashboard/:uid', async (request, response) => {
       db.collection('payoutRequests').find({ uid, status: 'paid', isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(5).toArray(),
       db.collection('payoutRequests').countDocuments({ uid, isSample: { $ne: true } }),
     ])
-    const totalEarnings = earnings[0]?.total || 0
+    const totalEarnings = earnings.net
     const pendingPayout = pendingPayouts[0]?.total || 0
+    const teacher = await db.collection('users').findOne({ uid }, { projection: { payoutSettings: 1 } })
     response.json({
       dashboard: {
         classes,
         earnings: {
           total: totalEarnings,
+          gross: earnings.gross,
+          commission: earnings.commission,
+          refunded: earnings.refunded,
+          transactions: earnings.transactions,
           available: Math.max(0, totalEarnings - (reservedPayouts[0]?.total || 0)),
           pending: pendingPayout,
           currency: 'BDT',
-          nextPayout: null,
+          nextPayout: nextScheduledPayout(teacher?.payoutSettings),
           payouts: payouts.map(({ amount, currency, createdAt }) => ({ amount, currency: currency || 'BDT', date: createdAt })),
+          recentTransactions: recentTransactions.map((item) => ({
+            paymentId: item.paymentId,
+            courseName: item.courseName || 'Course payment',
+            grossAmount: item.amount,
+            commissionAmount: Math.max(0, (Number(item.platformCommissionAmount) || 0) - (Number(item.commissionReversedAmount) || 0)),
+            teacherRevenue: Math.max(0, (Number(item.teacherNetAmount) || 0) - (Number(item.teacherRevenueReversedAmount) || 0)),
+            refundedAmount: Number(item.refundedAmount) || 0,
+            paymentMethod: item.paymentMethod || item.gateway,
+            paidAt: item.paidAt,
+          })),
         },
         roster: {
           totalStudents: studentCount,
@@ -384,9 +441,9 @@ app.post('/api/classes/:uid', async (request, response) => {
       id: randomUUID(), uid, title: title.trim(), schedule: schedule.trim(), startTime: startTime.trim(),
       endTime: endTime.trim(), time: startTime.trim(), period: '', location: location.trim(),
       department: department.trim(), status: status || 'active', enrolled: 0, students: [],
+      classType: meeting.classType, listingId: meeting.listingId, meetUrl: meeting.meetUrl, classDate: meeting.classDate,
       createdAt: now, updatedAt: now,
     }
-    delete record.listing
     await database.collection('classes').insertOne(record)
     const { _id, ...savedClass } = record
     response.status(201).json({ class: savedClass })
@@ -502,25 +559,45 @@ app.post('/api/students/:uid', async (request, response) => {
   }
 })
 
-app.get('/api/payments/:uid', async (request, response) => {
+app.get('/api/payments/:uid', verifyFirebaseToken, requireAuthenticatedRole('teacher'), async (request, response) => {
   if (!databaseReady) return response.status(503).json({ message: 'Database is still starting. Please try again in a moment.' })
   const { uid } = request.params
+  if (request.user.role !== 'admin' && uid !== request.authUid) return response.status(403).json({ message: 'You can only view your own payment records.' })
   if (!validUid(uid)) return response.status(400).json({ message: 'A valid user ID is required' })
   try {
     const db = getDatabase()
     await ensureTeacherData(uid)
-    const [payments, payoutRequests] = await Promise.all([
-      db.collection('payments').find({ uid, isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
+    const [payments, payoutRequests, totals, teacher] = await Promise.all([
+      db.collection('studentPayments').find({
+        teacherUid: uid,
+        gateway: { $in: ['stripe', 'bkash'] },
+        status: { $in: ['paid', 'refunded'] },
+        currency: 'BDT',
+      }).sort({ paidAt: -1 }).limit(100).toArray(),
       db.collection('payoutRequests').find({ uid, isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
+      getTeacherLiveEarnings(db, uid),
+      db.collection('users').findOne({ uid }, { projection: { payoutSettings: 1 } }),
     ])
     const paidOut = payoutRequests.filter((item) => item.status !== 'rejected').reduce((total, item) => total + item.amount, 0)
-    const totalEarnings = payments.reduce((total, item) => total + (item.amount || 0), 0)
     response.json({
-      earnings: totalEarnings,
-      available: Math.max(0, totalEarnings - paidOut),
-      payments: payments.map(({ _id, uid: _uid, ...item }) => item),
+      earnings: totals.net,
+      available: Math.max(0, totals.net - paidOut),
+      payments: payments.map((item) => ({
+        id: item.paymentId,
+        description: item.courseName || 'Course payment',
+        grossAmount: Number(item.amount) || 0,
+        commission: Math.max(0, (Number(item.platformCommissionAmount) || 0) - (Number(item.commissionReversedAmount) || 0)),
+        amount: Math.max(0, (Number(item.teacherNetAmount) || 0) - (Number(item.teacherRevenueReversedAmount) || 0)),
+        currency: 'BDT',
+        paymentMethod: item.paymentMethod || item.gateway,
+        refundedAmount: Number(item.refundedAmount) || 0,
+        status: 'paid',
+        date: item.paidAt || item.createdAt,
+        createdAt: item.paidAt || item.createdAt,
+      })),
       payoutRequests: payoutRequests.map(({ _id, uid: _uid, ...item }) => item),
-      currency: payments[0]?.currency || 'BDT',
+      payoutSettings: teacher?.payoutSettings || { enabled: false, monthlyAmount: 0, dayOfMonth: 1 },
+      currency: 'BDT',
     })
   } catch (error) {
     console.error('Unable to load payments:', error.message)
@@ -529,40 +606,52 @@ app.get('/api/payments/:uid', async (request, response) => {
 })
 
 app.post('/api/payments/:uid', async (request, response) => {
+  response.status(410).json({ message: 'Earnings are calculated from Stripe-confirmed live course payments and cannot be entered manually.' })
+})
+
+app.put('/api/payments/:uid/payout-settings', verifyFirebaseToken, requireAuthenticatedRole('teacher'), async (request, response) => {
   if (!databaseReady) return response.status(503).json({ message: 'Database is still starting. Please try again in a moment.' })
   const { uid } = request.params
-  const { description, amount, classId, date, currency = 'BDT' } = request.body || {}
-  if (!validUid(uid) || typeof description !== 'string' || !description.trim() || description.trim().length > 160 ||
-      !Number.isFinite(amount) || amount <= 0 || amount > 10000000 ||
-      (classId !== undefined && (typeof classId !== 'string' || classId.length > 256)) ||
-      (date !== undefined && (typeof date !== 'string' || Number.isNaN(Date.parse(date)))) ||
-      typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
-    return response.status(400).json({ message: 'Provide a description, positive amount, valid date, and three-letter currency code' })
+  if (request.user.role !== 'teacher') return response.status(403).json({ message: 'Only teachers can update payout settings.' })
+  if (request.user.role !== 'admin' && uid !== request.authUid) return response.status(403).json({ message: 'You can only update your own payout settings.' })
+  const body = request.body || {}
+  const { enabled, monthlyAmount, dayOfMonth } = body
+  if (Object.keys(body).some((field) => !['enabled', 'monthlyAmount', 'dayOfMonth'].includes(field)) ||
+      !validUid(uid) || typeof enabled !== 'boolean' || !Number.isFinite(monthlyAmount) ||
+      monthlyAmount < 0 || monthlyAmount > 10000000 || !Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 28 ||
+      (enabled && monthlyAmount <= 0)) {
+    return response.status(400).json({ message: 'Provide a valid monthly amount, schedule day (1–28), and enabled status.' })
   }
   try {
-    if (classId) {
-      const { classList } = await ensureTeacherData(uid)
-      if (!classList.some((item) => item.id === classId)) return response.status(404).json({ message: 'Class not found' })
-    }
-    const now = new Date()
-    const payments = getDatabase().collection('payments')
-    const conflictingCurrency = await payments.findOne({ uid, currency: { $ne: currency } })
-    if (conflictingCurrency) return response.status(400).json({ message: `Use ${conflictingCurrency.currency} for all payment records in this account` })
-    const record = { id: randomUUID(), uid, description: description.trim(), amount, classId: classId || null, date: date || now.toISOString().slice(0, 10), currency, type: 'earning', status: 'recorded', createdAt: now }
-    await payments.insertOne(record)
-    const { _id, uid: _uid, ...savedPayment } = record
-    response.status(201).json({ payment: savedPayment })
+    const result = await getDatabase().collection('users').updateOne(
+      { uid, role: 'teacher', status: { $ne: 'removed' } },
+      { $set: { payoutSettings: { enabled, monthlyAmount, dayOfMonth, updatedAt: new Date() }, updatedAt: new Date() } },
+    )
+    if (!result.matchedCount) return response.status(404).json({ message: 'Teacher account not found.' })
+    await writeAuditLog({
+      actorUid: request.authUid,
+      actorRole: request.user.role,
+      action: 'teacher.payout_settings_updated',
+      targetType: 'teacher',
+      targetId: uid,
+      meta: { enabled, monthlyAmount, dayOfMonth },
+    })
+    response.json({ payoutSettings: { enabled, monthlyAmount, dayOfMonth } })
   } catch (error) {
-    console.error('Unable to save payment:', error.message)
-    response.status(500).json({ message: 'Unable to save payment' })
+    console.error('Unable to update teacher payout settings:', error.message)
+    response.status(500).json({ message: 'Unable to update payout schedule.' })
   }
 })
 
-app.post('/api/payments/:uid/payout-requests', async (request, response) => {
+app.post('/api/payments/:uid/payout-requests', verifyFirebaseToken, requireAuthenticatedRole('teacher'), async (request, response) => {
   if (!databaseReady) return response.status(503).json({ message: 'Database is still starting. Please try again in a moment.' })
   const { uid } = request.params
-  const { amount, method, accountLast4 = '' } = request.body || {}
-  if (!validUid(uid) || !Number.isFinite(amount) || amount <= 0 || amount > 10000000 ||
+  if (request.user.role !== 'teacher') return response.status(403).json({ message: 'Only teachers can request a payout.' })
+  if (request.user.role !== 'admin' && uid !== request.authUid) return response.status(403).json({ message: 'You can only request a payout for your own account.' })
+  const body = request.body || {}
+  const { amount, method, accountLast4 = '' } = body
+  if (Object.keys(body).some((field) => !['amount', 'method', 'accountLast4'].includes(field)) ||
+      !validUid(uid) || !Number.isFinite(amount) || amount <= 0 || amount > 10000000 ||
       typeof method !== 'string' || !['bank', 'mobile_wallet'].includes(method) ||
       (accountLast4 && (typeof accountLast4 !== 'string' || !/^[0-9]{4}$/.test(accountLast4)))) {
     return response.status(400).json({ message: 'Enter a valid payout amount, method, and optional last four account digits' })
@@ -570,14 +659,21 @@ app.post('/api/payments/:uid/payout-requests', async (request, response) => {
   try {
     const db = getDatabase()
     const [earned, requested] = await Promise.all([
-      db.collection('payments').aggregate([{ $match: { uid, type: 'earning', isSample: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]).toArray(),
+      getTeacherLiveEarnings(db, uid),
       db.collection('payoutRequests').aggregate([{ $match: { uid, status: { $ne: 'rejected' }, isSample: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]).toArray(),
     ])
-    const available = (earned[0]?.total || 0) - (requested[0]?.total || 0)
+    const available = earned.net - (requested[0]?.total || 0)
     if (amount > available) return response.status(400).json({ message: 'Payout amount exceeds your recorded available balance' })
-    const latestPayment = await db.collection('payments').findOne({ uid, type: 'earning', isSample: { $ne: true } }, { sort: { createdAt: -1 } })
-    const record = { id: randomUUID(), uid, amount, currency: latestPayment?.currency || 'BDT', method, accountLast4, status: 'pending', createdAt: new Date() }
+    const record = { id: randomUUID(), uid, amount, currency: 'BDT', method, accountLast4, status: 'pending', createdAt: new Date() }
     await db.collection('payoutRequests').insertOne(record)
+    await writeAuditLog({
+      actorUid: request.authUid,
+      actorRole: request.user.role,
+      action: 'teacher.payout_requested',
+      targetType: 'payout_request',
+      targetId: record.id,
+      meta: { amount: record.amount, currency: record.currency, method: record.method },
+    })
     const { _id, uid: _uid, ...payoutRequest } = record
     response.status(201).json({ payoutRequest })
   } catch (error) {
@@ -768,9 +864,10 @@ app.use('/api', listingRouter)
 app.use('/api', studentRouter)
 app.use('/api', platformRouter)
 app.use('/api', userRouter)
-app.use('/api', bkashRouter)
-app.use('/api', stripeRouter)
-app.use('/api', courseManagementRouter)
+app.use('/api/course-management', courseManagementRouter)
+app.use('/api', teacherSubscriptionRouter)
+app.use('/api/notifications', notificationRouter)
+app.use('/api', paymentRouter)
 
 app.use(errorHandler)
 
@@ -811,6 +908,29 @@ connectDatabase()
      database.collection('assignments').createIndex({ listingId: 1, dueDate: 1 }),
      database.collection('assignmentSubmissions').createIndex({ assignmentId: 1, studentUid: 1 }, { unique: true }),
      database.collection('studentPayments').createIndex({ studentUid: 1, createdAt: -1 }),
+     database.collection('studentPayments').createIndex({ teacherUid: 1, mode: 1, status: 1, paidAt: -1 }),
+     database.collection('studentPayments').createIndex({ gateway: 1, mode: 1, status: 1, paidAt: -1 }),
+     database.collection('studentPayments').createIndex(
+       { revenueTransactionId: 1 },
+       { unique: true, partialFilterExpression: { revenueTransactionId: { $type: 'string' } } },
+     ),
+     database.collection('studentPayments').createIndex(
+       { providerInvoiceId: 1 },
+       { unique: true, partialFilterExpression: { providerInvoiceId: { $type: 'string' } } },
+     ),
+     database.collection('studentLessonProgress').createIndex(
+       { studentUid: 1, listingId: 1, lessonId: 1 },
+       { unique: true },
+     ),
+     database.collection('studentLessonProgress').createIndex({ studentUid: 1, lastViewedAt: -1 }),
+     database.collection('studentCourseCompletions').createIndex(
+       { studentUid: 1, listingId: 1 },
+       { unique: true },
+     ),
+     database.collection('teacherSubscriptionInvoices').createIndex({ teacherUid: 1, month: 1 }, { unique: true }),
+     database.collection('teacherSubscriptionPayments').createIndex({ paymentId: 1 }, { unique: true }),
+     database.collection('teacherSubscriptionPayments').createIndex({ providerPaymentId: 1 }, { sparse: true, unique: true }),
+     database.collection('googleMeetOAuthStates').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
      database.collection('studentPayments').createIndex(
        { studentUid: 1, listingId: 1, mode: 1 },
        { unique: true, partialFilterExpression: { mode: 'demo' } },
@@ -830,13 +950,31 @@ connectDatabase()
      database.collection('liveSessions').createIndex({ teacherUid: 1, createdAt: -1 }),
      database.collection('sessionAttendance').createIndex({ listingId: 1, sessionId: 1 }),
      database.collection('sessionAttendance').createIndex({ studentUid: 1, createdAt: -1 }),
+     database.collection('revenueTransactions').createIndex({ paymentId: 1 }, { unique: true }),
+     database.collection('revenueTransactions').createIndex(
+       { providerTransactionId: 1 },
+       { unique: true, partialFilterExpression: { providerTransactionId: { $type: 'string' } } },
+     ),
+     database.collection('revenueTransactions').createIndex({ teacherUid: 1, earningStatus: 1, availableAt: 1 }),
+     database.collection('revenueTransactions').createIndex({ paymentMonth: 1, commissionSettlementStatus: 1 }),
+     database.collection('revenueTransactions').createIndex({ teacherUid: 1, createdAt: -1 }),
+     database.collection('teacherWallets').createIndex({ teacherUid: 1 }, { unique: true }),
+     database.collection('monthlyAdminSettlements').createIndex({ settlementMonth: 1 }, { unique: true }),
+     database.collection('adminCommissionLedgers').createIndex({ paymentMonth: 1, createdAt: -1 }),
+     database.collection('adminCommissionLedgers').createIndex({ revenueTransactionId: 1 }),
+     database.collection('teacherPendingLedgers').createIndex({ teacherUid: 1, createdAt: -1 }),
+     database.collection('teacherPendingLedgers').createIndex({ revenueTransactionId: 1 }),
+     database.collection('teacherAvailableLedgers').createIndex({ teacherUid: 1, createdAt: -1 }),
+     database.collection('teacherAvailableLedgers').createIndex({ revenueTransactionId: 1 }),
      ...['messages', 'officeHours', 'resources'].map((name) => database.collection(name).createIndex({ uid: 1, createdAt: -1 })),
    ])
    databaseReady = true
+   startSettlementScheduler(database)
  })
  .catch((error) => console.error('TeachOS API could not connect to MongoDB:', error.message))
 
 process.on('SIGINT', async () => {
+  stopSettlementScheduler()
   server.close()
   await closeDatabase()
   process.exit(0)

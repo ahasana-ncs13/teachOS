@@ -23,8 +23,8 @@ userRouter.post('/admin/users', async (req, res, next) => {
       platformId: { required: false, type: 'string' },
     })
 
-    const user = await userService.createTenantUser(req, body)
-    res.status(201).json({ user })
+    const result = await userService.createTenantUser(req, body)
+    res.status(201).json(result)
   } catch (error) {
     next(error)
   }
@@ -39,6 +39,24 @@ userRouter.get('/admin/users', async (req, res, next) => {
       role,
       search,
     })
+    res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+userRouter.get('/admin/users/:teacherId/courses', async (req, res, next) => {
+  try {
+    const result = await userService.listTeacherCourses(req.params.teacherId)
+    res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+userRouter.get('/admin/users/:teacherId/courses/:listingId/students', async (req, res, next) => {
+  try {
+    const result = await userService.listCourseStudents(req.params.teacherId, req.params.listingId)
     res.json(result)
   } catch (error) {
     next(error)

@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { getDatabase } from '../db.js'
+import { getTeacherSubscription } from '../services/teacherSubscription.service.js'
 
 const firebaseProjectId = process.env.FIREBASE_PROJECT_ID
 const firebaseJwkSet = firebaseProjectId
@@ -23,30 +24,25 @@ export async function verifyToken(req, res, next) {
   const token = authHeader.slice('Bearer '.length).trim()
   let uid = null
 
-  // Support local demo tokens in development
-  if (process.env.NODE_ENV !== 'production' && token.startsWith('demo-')) {
-    uid = token
-  } else {
-    if (!firebaseJwkSet) {
-      return res.status(503).json({
-        message: 'Authentication service not configured (FIREBASE_PROJECT_ID is missing).',
-        code: 'AUTH_NOT_CONFIGURED',
-      })
-    }
+  if (!firebaseJwkSet) {
+    return res.status(503).json({
+      message: 'Authentication service not configured (FIREBASE_PROJECT_ID is missing).',
+      code: 'AUTH_NOT_CONFIGURED',
+    })
+  }
 
-    try {
-      const { payload } = await jwtVerify(token, firebaseJwkSet, {
-        algorithms: ['RS256'],
-        issuer: `https://securetoken.google.com/${firebaseProjectId}`,
-        audience: firebaseProjectId,
-      })
-      uid = payload.sub
-    } catch (error) {
-      return res.status(401).json({
-        message: 'Invalid or expired authentication token. Please sign in again.',
-        code: 'INVALID_TOKEN',
-      })
-    }
+  try {
+    const { payload } = await jwtVerify(token, firebaseJwkSet, {
+      algorithms: ['RS256'],
+      issuer: `https://securetoken.google.com/${firebaseProjectId}`,
+      audience: firebaseProjectId,
+    })
+    uid = payload.sub
+  } catch {
+    return res.status(401).json({
+      message: 'Invalid or expired authentication token. Please sign in again.',
+      code: 'INVALID_TOKEN',
+    })
   }
 
   if (!uid) {
@@ -59,18 +55,6 @@ export async function verifyToken(req, res, next) {
   try {
     const database = getDatabase()
     const userDoc = await database.collection('users').findOne({ uid })
-
-    if (!userDoc && process.env.NODE_ENV !== 'production' && uid.startsWith('demo-')) {
-      const demoRole = /^demo-(admin|teacher|student):/.exec(token)?.[1]
-      req.authUid = uid
-      req.user = {
-        uid,
-        email: `${uid}@example.com`,
-        role: demoRole || 'teacher',
-        platformId: null,
-      }
-      return next()
-    }
 
     if (!userDoc) {
       return res.status(403).json({
@@ -133,6 +117,25 @@ export function requireRole(...allowedRoles) {
       message: `Access denied. Requires one of: [${allowedRoles.join(', ')}]`,
       code: 'FORBIDDEN',
     })
+  }
+}
+
+export async function requireTeacherSubscriptionAccess(req, res, next) {
+  if (req.user?.role !== 'teacher' || req.method === 'GET') return next()
+  try {
+    const subscription = await getTeacherSubscription(getDatabase(), req.authUid)
+    if (subscription.status === 'past_due' || subscription.status === 'suspended') {
+      return res.status(402).json({
+        message: subscription.status === 'suspended'
+          ? 'Your teacher workspace is suspended after three unpaid platform-fee warnings. Settle the balance to restore access.'
+          : 'Your income-based platform fee is due. Settle the balance to continue using teacher tools.',
+        code: subscription.status === 'suspended' ? 'TEACHER_ACCOUNT_SUSPENDED' : 'TEACHER_SUBSCRIPTION_PAYMENT_REQUIRED',
+        subscription,
+      })
+    }
+    return next()
+  } catch (error) {
+    return next(error)
   }
 }
 

@@ -23,9 +23,16 @@ export default function AdminDashboard() {
     return () => { current = false }
   }, [])
 
+  const fin = overview?.financialSummary
   const stats = overview ? [
-    { label: 'Platform commission this month', value: taka(overview.monthlyCommission?.commissionAmount), detail: `${overview.monthlyCommission?.month || 'Current month'} · 5% of confirmed live BDT payments`, icon: FiBriefcase },
-    { label: 'Pending payouts', value: taka(overview.pendingPayouts), detail: 'Awaiting review', icon: FiCreditCard },
+    { label: 'Total Gross Revenue', value: taka(fin?.totalGrossCourseRevenue ?? overview.monthlyCommission?.grossAmount), detail: 'All verified payments · all time', icon: FiBookOpen },
+    { label: 'Total Platform Commission (5%)', value: taka(fin?.totalPlatformCommission ?? overview.monthlyCommission?.commissionAmount), detail: 'TeachOS income · all time', icon: FiBriefcase },
+    { label: 'Current Month Commission', value: taka(fin?.currentMonthAccumulatedCommission ?? 0), detail: `${overview.monthlyCommission?.month || 'This month'} · accumulating`, icon: FiBriefcase },
+    { label: 'Teacher Pending Earnings', value: taka(fin?.teacherPendingEarnings ?? 0), detail: 'Held until calendar-month release', icon: FiCreditCard },
+    { label: 'Teacher Available Earnings', value: taka(fin?.teacherAvailableEarnings ?? 0), detail: 'Released, withdrawable by teachers', icon: FiCreditCard },
+    { label: 'Successful Transactions', value: (fin?.totalSuccessfulPayments ?? overview.monthlyCommission?.paymentCount ?? 0).toLocaleString(), detail: 'Provider-verified live Stripe and bKash payments', icon: FiCreditCard },
+    { label: 'Refunds & Chargebacks', value: taka(fin?.refundsAndChargebacks ?? overview.monthlyCommission?.refundedAmount), detail: 'Verified refunds · commission reversed', icon: FiInfo },
+    { label: 'Pending payout requests', value: taka(overview.pendingPayouts), detail: 'Awaiting admin review', icon: FiCreditCard },
     { label: 'Active teachers', value: overview.teachers.toLocaleString(), detail: 'Registered teacher accounts', icon: FiAward },
     { label: 'Students', value: overview.students.toLocaleString(), detail: 'Registered student accounts', icon: FiUsers },
   ] : []

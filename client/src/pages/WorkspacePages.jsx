@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiGrid, FiHelpCircle, FiLogOut, FiPlus, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
+import { useCallback, useEffect, useState } from 'react'
+import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiExternalLink, FiGrid, FiHelpCircle, FiLogOut, FiPlay, FiPlus, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
@@ -12,7 +12,7 @@ export function WorkspaceFrame({ title, description, children, onQuickAction }) 
   const name = user?.displayName || user?.email?.split('@')[0] || 'Teacher'
   const navigation = [
     { to: '/dashboard', label: 'Dashboard', icon: FiGrid },
-    { to: '/dashboard/classes', label: 'Classes', icon: FiBookOpen },
+    { to: '/dashboard/teaching-studio', label: 'Classes & lessons', icon: FiBookOpen },
     { to: '/dashboard/listings', label: 'My listings', icon: FiPlus },
     { to: '/dashboard/attendance', label: 'Attendance', icon: FiCheck },
     { to: '/dashboard/directory', label: 'Directory', icon: FiUsers },
@@ -46,7 +46,7 @@ export function WorkspaceFrame({ title, description, children, onQuickAction }) 
 
 function useWorkspaceData(path, property, enabled = true) {
   const { user } = useAuth()
-  const uid = user?.uid || `demo-${user?.email || 'teacher'}`
+  const uid = user.uid
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -87,11 +87,13 @@ function ClassesPage() {
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [classType, setClassType] = useState('in_person')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
   const visible = data.items.filter((item) => item.title.toLowerCase().includes(search.toLowerCase()))
+  const visibleListings = teacherListings.filter((listing) => (
+    `${listing.name} ${listing.courseName || ''} ${listing.category || ''}`.toLowerCase().includes(search.trim().toLowerCase())
+  ))
 
   useEffect(() => {
     let current = true
@@ -116,7 +118,6 @@ function ClassesPage() {
       await data.refresh()
       setShowForm(false)
       setEditing(null)
-      setClassType('in_person')
       setNotice(response.data.notificationsSent === false
         ? 'Class saved, but some role notifications could not be delivered.'
         : editing ? 'Class changes saved and relevant users notified.' : 'Class saved and relevant users notified.')
@@ -127,31 +128,61 @@ function ClassesPage() {
     }
   }
 
-  return <WorkspaceFrame title="Active Classes" description="Manage your course roster, schedules, and upcoming sessions." onQuickAction={() => setQuickOpen(true)}>
+  return <WorkspaceFrame title="My Classes" description="Open your course content, manage online classes, and view enrolled students." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={data.error} notice={notice} />
-    <div className="workspace-toolbar"><label><FiSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search classes..." /></label><button className="workspace-primary" type="button" onClick={() => { setEditing(null); setClassType('in_person'); setShowForm((value) => !value) }}><FiPlus /> Create class</button></div>
+    <div className="workspace-toolbar"><label><FiSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search online classes..." /></label><button className="workspace-primary" type="button" onClick={() => { setEditing(null); setShowForm((value) => !value) }}><FiPlus /> Schedule online class</button></div>
+    <section className="teacher-course-section" aria-labelledby="teacher-courses-title">
+      <header className="teacher-course-section-heading"><div><h2 id="teacher-courses-title">Your Courses</h2><p>Continue building course content or open a course outline.</p></div><Link to="/dashboard/listings">Manage listings</Link></header>
+      {visibleListings.length ? <div className="teacher-course-grid">{visibleListings.map((listing) => {
+        const courseHref = `/dashboard/course/${encodeURIComponent(listing._id)}`
+        return <article className="teacher-course-card" key={listing._id}>
+          <div className="teacher-course-cover">
+            {listing.image ? <img src={listing.image} alt="" loading="lazy" /> : <FiBookOpen aria-hidden="true" />}
+            <span className={`teacher-course-status${listing.isBanned ? ' banned' : ''}`}>{listing.isBanned ? 'Banned' : listing.published === false ? 'Unpublished' : 'Published'}</span>
+          </div>
+          <div className="teacher-course-card-body">
+            <span className="teacher-course-category">{listing.category || 'Online course'}</span>
+            <h3>{listing.courseName || listing.name}</h3>
+            {listing.courseName && listing.courseName !== listing.name && <p className="teacher-course-batch">{listing.name}</p>}
+            <div className="teacher-course-details">
+              <span><FiUsers /> {Number(listing.enrolledCount || 0)} students</span>
+              <span><FiCalendar /> {Array.isArray(listing.days) && listing.days.length ? listing.days.join(', ') : listing.duration || 'Schedule not set'}</span>
+            </div>
+            {listing.isBanned && <p className="teacher-course-ban-note">This course was hidden from public pages by an administrator.</p>}
+            <div className="teacher-course-actions">
+              <Link className="teacher-course-continue" to={courseHref}><FiPlay /> Continue Course</Link>
+              <Link className="teacher-course-outline" to={`${courseHref}?tab=modules`}>Course Outline</Link>
+            </div>
+          </div>
+        </article>
+      })}</div> : <div className="teacher-course-empty"><FiBookOpen /><strong>{teacherListings.length ? 'No matching courses' : 'No courses yet'}</strong><span>{teacherListings.length ? 'Try another search.' : 'Create and publish a course listing to manage its online content here.'}</span>{!teacherListings.length && <Link to="/dashboard/listings">Go to My Listings</Link>}</div>}
+    </section>
+    <section className="teacher-scheduled-classes" aria-labelledby="teacher-scheduled-title">
+      <header className="teacher-course-section-heading"><div><h2 id="teacher-scheduled-title">Scheduled Online Classes</h2><p>Manage your live sessions and meeting links.</p></div></header>
     {showForm && <form className="workspace-form workspace-class-form" onSubmit={submitClass}>
-      <h2>{editing ? 'Edit class' : 'Create a class'}</h2>
+      <h2>{editing ? 'Edit online class' : 'Schedule an online class'}</h2>
+      <input type="hidden" name="classType" value="live" />
       <label>Class name<input name="title" required maxLength="120" defaultValue={editing?.title || ''} /></label>
       <label>Schedule<input name="schedule" required maxLength="120" placeholder="Mon, Wed, Fri" defaultValue={editing?.schedule || ''} /></label>
       <div className="workspace-form-row"><label>Starts at<input name="startTime" required defaultValue={editing?.startTime || ''} placeholder="10:00 AM" /></label><label>Ends at<input name="endTime" required defaultValue={editing?.endTime || ''} placeholder="11:30 AM" /></label></div>
-      <label>Class format<select name="classType" value={classType} onChange={(event) => setClassType(event.target.value)}><option value="in_person">In-person / regular class</option><option value="live">Live class on Google Meet</option></select></label>
-      {classType === 'live' && <div className="workspace-live-fields">
+      <div className="workspace-live-fields">
         <label>Course for enrolled students<select name="listingId" required defaultValue={editing?.listingId || ''}><option value="" disabled>Select your course</option>{teacherListings.filter((listing) => listing.status === 'active').map((listing) => <option key={listing._id} value={listing._id}>{listing.name}</option>)}</select><small>Only students enrolled in this published course will receive the Meet link and live-class notification.</small></label>
         <div className="workspace-form-row"><label>Live class date<input name="classDate" type="date" required defaultValue={editing?.classDate || ''} /></label><div className="workspace-meet-create"><span>Google Meet link</span><a href="https://meet.google.com/new" target="_blank" rel="noreferrer"><FiExternalLink /> Create a Meet link</a><small>Open Meet, create a meeting, then paste its link below.</small></div></div>
         <label>Meet URL<input name="meetUrl" type="url" required maxLength="2048" defaultValue={editing?.meetUrl || ''} placeholder="https://meet.google.com/abc-defg-hij" /></label>
-      </div>}
-      <label>Location<input name="location" required maxLength="120" defaultValue={editing?.location || ''} placeholder="Room 4B / Hybrid" /></label>
-      <label>Department<input name="department" required maxLength="100" defaultValue={editing?.department || ''} placeholder="Sciences" /></label>
+      </div>
+      <input type="hidden" name="location" value="Online" />
+      <label>Subject area<input name="department" required maxLength="100" defaultValue={editing?.department || ''} placeholder="Sciences" /></label>
       <label>Status<select name="status" defaultValue={editing?.status || 'active'}><option value="active">Active</option><option value="upcoming">Upcoming</option><option value="completed">Completed</option></select></label>
-      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : classType === 'live' ? 'Schedule live class' : 'Save class'}</button><button className="workspace-secondary" type="button" onClick={() => { setShowForm(false); setEditing(null); setClassType('in_person') }}>Cancel</button></div>
+      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Save online class'}</button><button className="workspace-secondary" type="button" onClick={() => { setShowForm(false); setEditing(null) }}>Cancel</button></div>
     </form>}
     {data.loading ? <p className="workspace-empty">Loading classes...</p> : visible.length ? <div className="workspace-class-grid">{visible.map((item) => <article className="workspace-card class-card" key={item.id}>
       <div className="class-card-art"><span className={item.status}>{item.status}</span></div>
-      <div className="class-card-body"><h2>{item.title}</h2><p><FiCalendar /> {item.schedule} · {item.startTime}–{item.endTime}</p><p><FiUsers /> {item.enrolled} students enrolled</p><p><FiBookOpen /> {item.location}</p>
+      <div className="class-card-body"><h2>{item.title}</h2><p><FiCalendar /> {item.schedule} · {item.startTime}–{item.endTime}</p><p><FiUsers /> {item.enrolled} students enrolled</p><p><FiBookOpen /> Online · {item.department}</p>
+        {item.meetUrl && <a className="workspace-online-class-link" href={item.meetUrl} target="_blank" rel="noreferrer"><FiExternalLink /> Open online class</a>}
         <div className="workspace-card-actions"><button type="button" onClick={() => { setEditing(item); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Manage class</button><span>Saved</span></div>
       </div>
-    </article>)}</div> : <p className="workspace-empty">No classes found. Create a class to get started.</p>}
+    </article>)}</div> : <p className="workspace-empty">No scheduled classes found. Schedule an online class to get started.</p>}
+    </section>
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
   </WorkspaceFrame>
 }
@@ -212,7 +243,7 @@ function DirectoryPage() {
 
 function AttendancePage() {
   const { user } = useAuth()
-  const uid = user?.uid || `demo-${user?.email || 'teacher'}`
+  const uid = user.uid
   const [classes, setClasses] = useState([])
   const [records, setRecords] = useState([])
   const [classId, setClassId] = useState('')
@@ -370,38 +401,45 @@ function localDateValue(date) {
 }
 
 function PaymentsPage() {
-  const data = useWorkspaceData('/payments', 'payments', false)
-  const { uid, setError, setItems, setLoading } = data
+  const { user } = useAuth()
   const [finance, setFinance] = useState(null)
+  const [month, setMonth] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7))
   const [mode, setMode] = useState('')
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduleBusy, setScheduleBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [quickOpen, setQuickOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const refresh = async () => {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const refresh = useCallback(async () => {
+    if (!user?.uid) return
+    setLoading(true)
     setError('')
     try {
-      const { data: paymentData } = await api.get(`/payments/${encodeURIComponent(uid)}`)
+      const { data: paymentData } = await api.get('/teacher/payments', { params: { month } })
       setFinance(paymentData)
-      setItems(paymentData.payments)
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Could not load payment data.')
     } finally {
       setLoading(false)
     }
-  }
+  }, [user?.uid, month])
   useEffect(() => {
+    if (!user?.uid) return undefined
     let current = true
-    api.get(`/payments/${encodeURIComponent(uid)}`).then(({ data: paymentData }) => {
-      if (!current) return
-      setFinance(paymentData)
-      setItems(paymentData.payments)
+    api.get('/teacher/payments', { params: { month } }).then(({ data: paymentData }) => {
+      if (current) setFinance(paymentData)
     }).catch((requestError) => {
       if (current) setError(requestError.response?.data?.message || 'Could not load payment data.')
     }).finally(() => {
       if (current) setLoading(false)
     })
     return () => { current = false }
-  }, [uid, setError, setItems, setLoading])
+  }, [user?.uid, month])
+  const payments = finance?.payments || []
+  const payoutRequests = finance?.payoutRequests || []
+  const paidOut = payoutRequests.filter((item) => item.status === 'paid').reduce((total, item) => total + (Number(item.amount) || 0), 0)
   const submitFinance = async (event) => {
     event.preventDefault()
     const values = Object.fromEntries(new FormData(event.currentTarget))
@@ -410,7 +448,7 @@ function PaymentsPage() {
     setNotice('')
     try {
       values.amount = Number(values.amount)
-      await api.post(`/payments/${encodeURIComponent(uid)}/payout-requests`, values)
+      await api.post('/teacher/payments/payout-requests', values)
       setNotice('Payout request saved for admin review. No transfer is initiated automatically.')
       await refresh()
       setMode('')
@@ -420,19 +458,223 @@ function PaymentsPage() {
       setBusy(false)
     }
   }
-  return <WorkspaceFrame title="Payments & Earnings" description="Review Stripe-confirmed payments, monthly commission, and payout requests." onQuickAction={() => setQuickOpen(true)}>
-    <ResultBanner error={data.error} notice={notice} />
-    <div className="workspace-finance-actions"><button className="workspace-secondary" type="button" onClick={() => setMode(mode === 'earning' ? '' : 'earning')}><FiPlus /> Record payment</button><button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request payout</button></div>
-    <div className="workspace-metrics workspace-finance-metrics"><article><span>Total recorded earnings</span><strong>{formatMoney(finance?.earnings || 0, finance?.currency || 'BDT')}</strong></article><article><span>Available for payout</span><strong>{formatMoney(finance?.available || 0, finance?.currency || 'BDT')}</strong></article><article><span>Paid out</span><strong>{formatMoney(totalPaid, finance?.currency || 'BDT')}</strong></article></div>
-    <p className="workspace-info">Payout requests are stored for review only. Connect a payment provider separately before enabling real transfers.</p>
-    {mode && <form className="workspace-form workspace-class-form" onSubmit={submitFinance}>
-      <h2>Request a payout</h2>
-      <label>Amount<input name="amount" type="number" step="0.01" min="0.01" required /></label>
-      <label>Method<select name="method" required><option value="bank">Bank transfer (request only)</option><option value="mobile_wallet">Mobile wallet (request only)</option></select></label>
-      <label>Account last 4 digits (optional)<input name="accountLast4" inputMode="numeric" pattern="[0-9]{4}" maxLength="4" /></label>
-      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Submit request'}</button><button className="workspace-secondary" type="button" onClick={() => setMode('')}>Cancel</button></div>
+  const savePayoutSchedule = async (event) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    const values = Object.fromEntries(new FormData(form))
+    const settings = {
+      enabled: Boolean(form.elements.enabled.checked),
+      monthlyAmount: Number(values.monthlyAmount),
+      dayOfMonth: Number(values.dayOfMonth),
+    }
+    setScheduleBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const { data: result } = await api.put('/teacher/payments/payout-settings', settings)
+      setFinance((current) => ({ ...current, payoutSettings: result.payoutSettings }))
+      setNotice('Monthly payout schedule saved. Transfers are not initiated automatically.')
+      setScheduleOpen(false)
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Could not save your monthly payout schedule.')
+    } finally {
+      setScheduleBusy(false)
+    }
+  }
+  const transactions = [
+    ...payoutRequests.map((item) => ({ ...item, type: 'payout', amount: Number(item.amount) || 0 })),
+    ...payments.map((item) => ({ ...item, type: 'payment', amount: Number(item.netAmount) || 0 })),
+  ].sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0))
+  return <WorkspaceFrame title="Payments & Earnings" description="Review course income, learner payments, and payout requests." onQuickAction={() => setQuickOpen(true)}>
+    <ResultBanner error={error} notice={notice} />
+    <div className="workspace-finance-actions">
+      <label>Report month<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+      <button className="workspace-secondary" type="button" onClick={() => setScheduleOpen((open) => !open)}>Monthly payout schedule</button>
+      <button className="workspace-primary" type="button" onClick={() => setMode(mode === 'payout' ? '' : 'payout')}>Request withdrawal</button>
+    </div>
+    <div className="workspace-metrics workspace-finance-metrics" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+      <article>
+        <span>Lifetime Earnings</span>
+        <strong>{formatMoney(finance?.lifetimeEarnings ?? finance?.teacherRevenue ?? 0)}</strong>
+        <small style={{ color: '#6b7280', fontSize: '11px' }}>Total 95% earned</small>
+      </article>
+      <article style={{ borderLeft: '3px solid #f59e0b' }}>
+        <span>Pending Earnings</span>
+        <strong style={{ color: '#d97706' }}>{formatMoney(finance?.pendingEarnings ?? 0)}</strong>
+        <small style={{ color: '#6b7280', fontSize: '11px' }}>Held until 1st of following month</small>
+      </article>
+      <article style={{ borderLeft: '3px solid #10b981' }}>
+        <span>Available Balance</span>
+        <strong style={{ color: '#059669' }}>{formatMoney(finance?.availableBalance ?? finance?.available ?? 0)}</strong>
+        <small style={{ color: '#6b7280', fontSize: '11px' }}>Eligible for withdrawal</small>
+      </article>
+      <article>
+        <span>Withdrawn Amount</span>
+        <strong style={{ formatMoney: '#6b7280' }}>{formatMoney(finance?.withdrawnAmount ?? paidOut ?? 0)}</strong>
+        <small style={{ color: '#6b7280', fontSize: '11px' }}>Paid out to date</small>
+      </article>
+      <article>
+        <span>One-Time Course Earnings</span>
+        <strong>{formatMoney(finance?.oneTimeEarnings ?? 0)}</strong>
+        <small style={{ color: '#6b7280', fontSize: '11px' }}>Lifetime access fees</small>
+      </article>
+      <article>
+        <span>Monthly Subscription Earnings</span>
+        <strong>{formatMoney(finance?.subscriptionEarnings ?? 0)}</strong>
+        <small style={{ color: '#6b7280', fontSize: '11px' }}>Recurring tuition fees</small>
+      </article>
+      <article>
+        <span>Upcoming Payout Date</span>
+        <strong style={{ fontSize: '15px' }}>
+          {finance?.upcomingPayoutDate
+            ? new Date(finance.upcomingPayoutDate).toLocaleDateString('en-US', { timeZone: 'Asia/Dhaka', year: 'numeric', month: 'short', day: 'numeric' })
+            : 'None pending'}
+        </strong>
+        <small style={{ color: '#6b7280', fontSize: '11px' }}>Asia/Dhaka schedule</small>
+      </article>
+    </div>
+    <p className="workspace-info">Income includes provider-verified live Stripe and bKash course payments (95% teacher share). Following calendar-month settlement rules, earnings remain pending until the end of the payment month, becoming available on the 1st of the following calendar month in Asia/Dhaka time. Only Available Balance can be withdrawn. Payouts are records only; TeachOS does not transfer money.</p>
+    {scheduleOpen && <form className="workspace-form workspace-class-form" onSubmit={savePayoutSchedule}>
+      <h2>Configure a monthly payout plan</h2>
+      <label>Monthly amount (BDT)<input name="monthlyAmount" type="number" step="0.01" min="0" max="10000000" defaultValue={finance?.payoutSettings?.monthlyAmount || ''} required /></label>
+      <label>Payout day of month<input name="dayOfMonth" type="number" min="1" max="28" defaultValue={finance?.payoutSettings?.dayOfMonth || 1} required /></label>
+      <label className="workspace-checkbox"><input type="checkbox" name="enabled" defaultChecked={Boolean(finance?.payoutSettings?.enabled)} /> Enable this monthly schedule</label>
+      <div className="workspace-form-actions"><button className="workspace-primary" disabled={scheduleBusy}>{scheduleBusy ? 'Saving...' : 'Save schedule'}</button><button className="workspace-secondary" type="button" onClick={() => setScheduleOpen(false)}>Cancel</button></div>
     </form>}
-    <section className="workspace-card workspace-finance-list"><h2>Recent transactions</h2>{data.loading ? <p className="workspace-empty">Loading transactions...</p> : [...(finance?.payoutRequests || []).map((item) => ({ ...item, type: 'payout' })), ...data.items].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((item) => <article key={item.id}><div><strong>{item.description || (item.type === 'payout' ? 'Payout request' : 'Payment')}</strong><small>{item.date || new Date(item.createdAt).toLocaleDateString()} · {item.status}</small></div><b className={item.type === 'payout' ? 'negative' : ''}>{item.type === 'payout' ? '−' : '+'}{formatMoney(item.amount, item.currency || finance?.currency || 'BDT')}</b></article>)}</section>
+    {mode && <form className="workspace-form workspace-class-form" onSubmit={submitFinance}>
+      <h2>Request a withdrawal</h2>
+      <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#4b5563' }}>
+        Available for withdrawal: <strong>{formatMoney(finance?.availableBalance ?? finance?.available ?? 0)}</strong>
+        {(finance?.lockedInWithdrawal > 0) && <span> ({formatMoney(finance.lockedInWithdrawal)} currently locked in pending requests)</span>}
+      </p>
+      <label>Amount (BDT)
+        <input
+          name="amount"
+          type="number"
+          step="0.01"
+          min="1"
+          max={finance?.availableBalance ?? finance?.available ?? 0}
+          required
+          disabled={(finance?.availableBalance ?? finance?.available ?? 0) <= 0}
+          placeholder={`Up to ${finance?.availableBalance ?? finance?.available ?? 0}`}
+        />
+      </label>
+      <label>Method
+        <select name="method" required>
+          <option value="bank">Bank transfer (request only)</option>
+          <option value="bkash">bKash (request only)</option>
+          <option value="mobile_wallet">Mobile wallet (request only)</option>
+        </select>
+      </label>
+      <label>Account Number / Reference (or last 4 digits)
+        <input name="accountLast4" placeholder="e.g. 017XXXXXXXX or bank account number" required />
+      </label>
+      <div className="workspace-form-actions">
+        <button className="workspace-primary" disabled={busy || (finance?.availableBalance ?? finance?.available ?? 0) <= 0}>
+          {busy ? 'Saving...' : 'Submit request'}
+        </button>
+        <button className="workspace-secondary" type="button" onClick={() => setMode('')}>Cancel</button>
+      </div>
+    </form>}
+    <section className="workspace-card workspace-finance-list">
+      <h2>Monthly Earnings History</h2>
+      {finance?.monthlyHistory?.length ? (
+        finance.monthlyHistory.map((item) => (
+          <article key={item.month}>
+            <div>
+              <strong>{item.month}</strong>
+              <small>{item.paymentCount} payments · Gross {formatMoney(item.grossAmount)} · Commission {formatMoney(item.commissionAmount)}</small>
+              <small style={{ color: item.pendingAmount > 0 ? '#d97706' : '#059669' }}>
+                {item.pendingAmount > 0 ? `Pending: ${formatMoney(item.pendingAmount)}` : 'Fully Released'}
+                {item.availableAmount > 0 ? ` · Released: ${formatMoney(item.availableAmount)}` : ''}
+              </small>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <b style={{ color: '#10b981' }}>{formatMoney(item.netAmount)}</b>
+              <span style={{ display: 'block', fontSize: '10px', color: '#6b7280' }}>Teacher 95%</span>
+            </div>
+          </article>
+        ))
+      ) : (
+        <p className="workspace-empty">No monthly earnings history yet.</p>
+      )}
+    </section>
+    <section className="workspace-card workspace-finance-list">
+      <h2>Course-wise revenue</h2>
+      {finance?.courseBreakdown?.length ? (
+        finance.courseBreakdown.map((course) => (
+          <article key={String(course.listingId || course.courseName)}>
+            <div>
+              <strong>{course.courseName}</strong>
+              <small>{course.paymentCount} verified payments · Gross {formatMoney(course.grossAmount)} · Commission {formatMoney(course.commissionAmount)}</small>
+            </div>
+            <b>{formatMoney(course.netAmount)}</b>
+          </article>
+        ))
+      ) : (
+        <p className="workspace-empty">No verified course revenue for this teacher yet.</p>
+      )}
+    </section>
+    <section className="workspace-card workspace-finance-list">
+      <h2>Withdrawal History</h2>
+      {(finance?.withdrawalHistory || payoutRequests).length ? (
+        (finance?.withdrawalHistory || payoutRequests).map((item) => (
+          <article key={String(item._id || item.id)}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <strong>Withdrawal Request</strong>
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  background: item.status === 'paid' ? '#dcfce7' : item.status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                  color: item.status === 'paid' ? '#166534' : item.status === 'rejected' ? '#991b1b' : '#92400e',
+                }}>
+                  {item.status}
+                </span>
+              </div>
+              <small>{item.method || 'Transfer'} · {item.accountLast4 ? `Account/Ref: ${item.accountLast4}` : ''}</small>
+              <small>
+                Requested: {item.requestedAt ? new Date(item.requestedAt).toLocaleDateString() : (item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '')}
+                {item.settledAt && ` · Settled: ${new Date(item.settledAt).toLocaleDateString()}`}
+                {item.payoutReference && ` · Ref: ${item.payoutReference}`}
+              </small>
+            </div>
+            <b className="negative">−{formatMoney(item.amount)}</b>
+          </article>
+        ))
+      ) : (
+        <p className="workspace-empty">No withdrawal requests recorded yet.</p>
+      )}
+    </section>
+    <section className="workspace-card workspace-finance-list">
+      <h2>Recent Verified Payments</h2>
+      {loading ? (
+        <p className="workspace-empty">Loading financial records...</p>
+      ) : payments.length ? (
+        payments.map((item) => (
+          <article key={String(item.id || item._id)}>
+            <div>
+              <strong>{item.courseName}</strong>
+              <small>{item.studentName} · {item.paymentType || 'Course Payment'} · {item.paymentMethod || 'Online'}</small>
+              <small>
+                {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''} · Gross {formatMoney(item.grossAmount)} · Commission (5%) {formatMoney(item.commission)}
+                {item.refundedAmount > 0 && ` · Refunded ${formatMoney(item.refundedAmount)}`}
+              </small>
+              <small style={{ color: item.earningStatus === 'AVAILABLE' ? '#059669' : '#d97706' }}>
+                Status: {item.earningStatus || 'PENDING'}
+                {item.availableAt && ` · Available: ${new Date(item.availableAt).toLocaleDateString('en-US', { timeZone: 'Asia/Dhaka', year: 'numeric', month: 'short', day: 'numeric' })}`}
+              </small>
+            </div>
+            <b style={{ color: '#059669' }}>+{formatMoney(item.netAmount || item.teacherEarning)}</b>
+          </article>
+        ))
+      ) : (
+        <p className="workspace-empty">No verified payments recorded yet.</p>
+      )}
+    </section>
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
   </WorkspaceFrame>
 }
@@ -463,7 +705,7 @@ function QuickActionsPage() {
   })
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const uid = user?.uid || `demo-${user?.email || 'teacher'}`
+  const uid = user.uid
 
   const refreshActions = async () => {
     try {

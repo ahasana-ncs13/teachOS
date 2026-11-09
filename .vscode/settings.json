@@ -1,5 +1,6 @@
 {
-    "terminal.integrated.cwd": "D:\\PROJECTS\\teachOS",
+    "terminal.integrated.cwd": "F:\\SWE\\TeachOS",
     "files.autoSave": "afterDelay",
-    "files.autoSaveDelay": 100
+    "files.autoSaveDelay": 100,
+    "kiroAgent.configureMCP": "Disabled"
 }

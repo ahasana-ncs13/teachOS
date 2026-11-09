@@ -3,6 +3,14 @@
 .directory-heading h2 { margin: 0; color: var(--ink); font: 700 25px/1.25 'Plus Jakarta Sans', sans-serif; letter-spacing: -.5px; }
 .directory-heading p { margin: 6px 0 0; color: var(--directory-muted); font-size: 12px; line-height: 1.5; }
 .directory-heading-actions { display: flex; align-items: center; gap: 10px; }
+.directory-staff-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 12px; margin: 0 0 16px; padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.directory-staff-form label { display: grid; gap: 6px; color: var(--ink); font-size: 10px; font-weight: 650; }
+.directory-staff-form input { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font-size: 11px; }
+.directory-staff-form p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 10px; }
+.directory-staff-form button { justify-self: start; }
+.directory-staff-form button:disabled { opacity: .6; cursor: wait; }
+.directory-setup-link { display: grid; gap: 7px; margin-bottom: 14px; padding: 12px; border: 1px solid #b9dfcd; border-radius: 8px; background: #eef9f3; color: #226144; font-size: 10px; overflow-wrap: anywhere; }
+.directory-setup-link a { color: #3156a0; }
 .directory-search { display: flex; align-items: center; gap: 9px; width: 225px; height: 39px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--soft); }
 .directory-search:focus-within { border-color: var(--directory-primary); box-shadow: 0 0 0 3px rgba(118,87,214,.12); }
 .directory-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 11px; }
@@ -43,7 +51,6 @@
 .directory-row-actions button { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .directory-row-actions button:hover { background: var(--tint-2); color: var(--blue); }
 .directory-table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 47px; padding: 10px 16px; border-top: 1px solid var(--line); background: #fff; color: var(--muted); font-size: 10px; }
-.directory-demo-note { color: var(--soft); }
 .directory-empty { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--muted); text-align: center; }
 .directory-empty svg { font-size: 24px; color: var(--soft); }
 .directory-empty strong { color: var(--ink); font-size: 13px; }
@@ -61,15 +68,27 @@
 .directory-modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 5px; }
 .directory-cancel { min-height: 39px; padding: 0 14px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); font-size: 11px; font-weight: 650; cursor: pointer; }
 .directory-form-note { display: block; margin-top: 14px; color: var(--soft); font-size: 9px; }
-.directory-person-modal { display: flex; flex-direction: column; align-items: flex-start; }
+.directory-person-modal { display: flex; max-height: 90vh; flex-direction: column; align-items: flex-start; overflow-y: auto; }
 .directory-person-modal h2 { margin-top: 14px; }
 .directory-person-modal dl { display: grid; width: 100%; gap: 10px; margin: 17px 0 0; }
 .directory-person-modal dl div { display: flex; justify-content: space-between; gap: 15px; padding-bottom: 9px; border-bottom: 1px solid #eef0f6; font-size: 11px; }
 .directory-person-modal dt { color: var(--muted); }
 .directory-person-modal dd { margin: 0; color: var(--ink); font-weight: 650; text-align: right; }
+.directory-teacher-courses { width: 100%; margin-top: 16px; }
+.directory-teacher-courses h3, .directory-course-students h4 { margin: 0 0 9px; color: var(--ink); font-size: 13px; }
+.directory-teacher-courses > p, .directory-course-students > p { color: var(--muted); font-size: 10px; }
+.directory-teacher-courses > .directory-enrollment-summary { margin: 0 0 5px; color: var(--ink); font-size: 11px; font-weight: 700; }
+.directory-teacher-courses > .directory-batch-note { margin: 0 0 10px; }
+.directory-teacher-courses ul, .directory-course-students ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.directory-teacher-courses li button, .directory-course-students li { display: grid; width: 100%; gap: 5px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); text-align: left; }
+.directory-teacher-courses li button { cursor: pointer; }
+.directory-teacher-courses li button:hover { border-color: var(--blue); background: var(--tint); }
+.directory-teacher-courses li strong, .directory-course-students li strong { font-size: 10px; }
+.directory-teacher-courses li span, .directory-course-students li span { color: var(--muted); font-size: 9px; }
+.directory-course-students { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); }
 .directory-done { align-self: flex-end; margin-top: 18px; min-width: 86px; }
 .directory-modal-close:focus-visible, .directory-filters select:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
 
 @media (max-width: 900px) { .directory-heading { align-items: flex-start; flex-direction: column; } .directory-heading-actions { width: 100%; } .directory-search { flex: 1; width: auto; } }
-@media (max-width: 560px) { .directory-heading h2 { font-size: 22px; } .directory-heading-actions { align-items: stretch; flex-direction: column; } .directory-heading-actions > * { width: 100%; } .directory-tabs button { flex: 1; padding-inline: 8px; } .directory-filter-heading { width: 100%; } .directory-filters label, .directory-filters select { flex: 1; min-width: 0; width: 100%; } .directory-table-footer { align-items: flex-start; flex-direction: column; } .directory-modal { padding: 23px 19px; } }
+@media (max-width: 560px) { .directory-heading h2 { font-size: 22px; } .directory-heading-actions { align-items: stretch; flex-direction: column; } .directory-heading-actions > * { width: 100%; } .directory-tabs button { flex: 1; padding-inline: 8px; } .directory-filter-heading { width: 100%; } .directory-filters label, .directory-filters select { flex: 1; min-width: 0; width: 100%; } .directory-table-footer { align-items: flex-start; flex-direction: column; } .directory-modal { padding: 23px 19px; } .directory-staff-form { grid-template-columns: 1fr; } .directory-staff-form p { grid-column: auto; } }

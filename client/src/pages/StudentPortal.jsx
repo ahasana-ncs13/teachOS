@@ -1,29 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, NavLink, useSearchParams } from 'react-router-dom'
-import { FiArrowRight, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiCreditCard, FiDownload, FiFileText, FiGrid, FiHelpCircle, FiLogOut, FiMenu, FiSearch, FiSend, FiShield, FiTag, FiUsers, FiX } from 'react-icons/fi'
+import { Link, NavLink, useNavigate, useSearchParams } from 'react-router-dom'
+import { FiArrowRight, FiBell, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiCreditCard, FiDownload, FiExternalLink, FiFileText, FiGrid, FiHelpCircle, FiLogOut, FiMenu, FiPlay, FiSearch, FiSend, FiShield, FiTag, FiUsers, FiX } from 'react-icons/fi'
 import { useAuth } from '../context/useAuth'
 import NotificationCenter from '../components/NotificationCenter'
 import { api } from '../lib/api'
-import BkashPaymentFlow from '../components/BkashPaymentFlow'
 import StripePaymentFlow from '../components/StripePaymentFlow'
-import PaymentMethodModal from '../components/PaymentMethodModal'
 import '../styles/student-portal.css'
-import '../styles/payment-method-modal.css'
 
 const money = (amount) => `৳${Number(amount || 0).toLocaleString('en-BD', { maximumFractionDigits: 2 })}`
 const emptyList = []
+const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const personName = (user) => user?.fullName || user?.displayName || user?.email?.split('@')[0] || 'Student'
 const initials = (name) => name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 const dateLabel = (value, options = { dateStyle: 'medium' }) => value ? new Intl.DateTimeFormat(undefined, options).format(new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value)) : 'No deadline'
 const isPastDue = (assignment) => Boolean(assignment.dueDate && new Date(/^\d{4}-\d{2}-\d{2}$/.test(assignment.dueDate) ? `${assignment.dueDate}T23:59:59` : assignment.dueDate) < new Date())
 const paymentMessages = {
-  success: 'Stripe test payment confirmed. Your course enrollment is active; this test payment is excluded from earnings and commission.',
   cancelled: 'Stripe Checkout was cancelled. No payment was recorded.',
-  failed: 'Stripe did not complete the payment. You can try again.',
-  verification_failed: 'The payment could not be verified with Stripe. Contact support before retrying.',
-  pending: 'Stripe is still processing the payment. Refresh your payment history in a moment.',
 }
-
 function StudentLayout({ title, description, children }) {
   const { user, signOut } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -31,6 +24,7 @@ function StudentLayout({ title, description, children }) {
   const links = [
     { to: '/student', label: 'Dashboard', icon: FiGrid, end: true },
     { to: '/student/classes', label: 'My Classes', icon: FiBookOpen },
+    { to: '/student/attendance', label: 'Attendance', icon: FiCheckCircle },
     { to: '/student/assignments', label: 'Assignments', icon: FiFileText },
     { to: '/student/payments', label: 'Payments', icon: FiCreditCard },
   ]
@@ -94,36 +88,64 @@ function StudentStatus({ error, notice, onRetry }) {
 }
 
 function DiscoveryCard({ listing, isEnrolled, enrolling, onEnroll }) {
+  const isOneTime = listing.pricingType === 'ONE_TIME' || (!listing.monthlyTuitionFee && Number(listing.fee) > 0 && listing.pricingType !== 'MONTHLY_SUBSCRIPTION')
   const admission = Number(listing.admissionFee || 0)
   const tuition = Number(listing.monthlyTuitionFee ?? listing.fee) || 0
-  const initialTotal = admission + tuition
+  const initialTotal = isOneTime ? (admission || Number(listing.fee) || 0) : admission + tuition
   const buttonLabel = isEnrolled ? 'Enrolled' : (enrolling === String(listing._id) ? 'Starting...' : (initialTotal > 0 ? 'Pay & enroll' : 'Enroll'))
   return <article className="student-discovery-card">
     {listing.image && <img src={listing.image} alt="" loading="lazy" />}
     <div><span className="student-category">{listing.category}</span><h3>{listing.name}</h3><p>{listing.teacherName || 'TeachOS teacher'} · {listing.duration}</p><div className="student-discovery-foot">
-      {initialTotal > 0 ? <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><strong>{money(initialTotal)}</strong><small>to join · then {money(tuition)}/month</small></div> : <strong>Free</strong>}
+      {isOneTime ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <strong>{money(initialTotal)}</strong>
+          <small style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontWeight: 700 }}>Lifetime Access</span>
+            one-time payment
+          </small>
+        </div>
+      ) : initialTotal > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <strong>{money(initialTotal)}</strong>
+          <small>to join · then {money(tuition)}/month</small>
+        </div>
+      ) : <strong>Free</strong>}
       <button type="button" disabled={isEnrolled || enrolling === String(listing._id)} onClick={() => onEnroll(listing)} style={{ flex: 1 }}>{buttonLabel}</button></div></div>
   </article>
 }
 
 export function StudentDashboard() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const { dashboard, loading, error, refresh } = useStudentDashboard()
   const [listings, setListings] = useState([])
+  const [announcements, setAnnouncements] = useState([])
+  const [subscriptions, setSubscriptions] = useState([])
+  const [announcementsError, setAnnouncementsError] = useState('')
+  const [showAllAnnouncements, setShowAllAnnouncements] = useState(false)
   const [notice, setNotice] = useState('')
   const [catalogError, setCatalogError] = useState('')
   const [actionError, setActionError] = useState('')
   const [enrolling, setEnrolling] = useState('')
-  const [bkashListing, setBkashListing] = useState(null)
   const [stripeListing, setStripeListing] = useState(null)
-  const [selectedListing, setSelectedListing] = useState(null)
-  const [paymentMethodModalOpen, setPaymentMethodModalOpen] = useState(false)
+  const [stripePaymentType, setStripePaymentType] = useState('initial')
+  const [cancellingSubscription, setCancellingSubscription] = useState('')
   useEffect(() => {
     let current = true
     api.get('/listings/latest', { params: { count: 4 } }).then(({ data }) => {
       if (current) setListings(data.listings || [])
     }).catch((requestError) => {
       if (current) setCatalogError(requestError.response?.data?.message || 'Course recommendations could not be loaded.')
+    })
+    api.get('/notifications').then(({ data }) => {
+      if (current) setAnnouncements(data.notifications || [])
+    }).catch((requestError) => {
+      if (current) setAnnouncementsError(requestError.response?.data?.message || 'Announcements could not be loaded.')
+    })
+    api.get('/student/subscriptions').then(({ data }) => {
+      if (current) setSubscriptions(data.subscriptions || [])
+    }).catch((requestError) => {
+      if (current) setActionError(requestError.response?.data?.message || 'Monthly tuition details could not be loaded.')
     })
     return () => { current = false }
   }, [])
@@ -135,13 +157,39 @@ export function StudentDashboard() {
     .sort((first, second) => new Date(first.dueDate || '9999-12-31') - new Date(second.dueDate || '9999-12-31'))
     .slice(0, 3)
   const name = personName(user)
+  const learningProgress = dashboard?.learningProgress ?? emptyList
+  const progressByListing = new Map(learningProgress.map((item) => [String(item.listingId), item]))
+  const featuredEnrollment = enrollments[0]
+  const featuredCourse = featuredEnrollment?.listing
+  const featuredProgress = featuredEnrollment ? progressByListing.get(String(featuredEnrollment.listingId)) : null
+  const supportByDay = new Map((dashboard?.supportSessions ?? emptyList).reduce((days, session) => {
+    const weekday = new Date(`${session.date}T12:00:00`).getDay()
+    const sessions = days.get(weekday) || []
+    sessions.push(session)
+    days.set(weekday, sessions)
+    return days
+  }, new Map()))
+  const todayWeekday = new Date().getDay()
+
+  const openAnnouncement = async (announcement) => {
+    if (!announcement.readAt) {
+      try {
+        await api.patch(`/notifications/${encodeURIComponent(announcement._id)}/read`)
+        setAnnouncements((items) => items.map((item) => item._id === announcement._id ? { ...item, readAt: new Date().toISOString() } : item))
+      } catch (requestError) {
+        setAnnouncementsError(requestError.response?.data?.message || 'This announcement could not be opened.')
+        return
+      }
+    }
+    if (typeof announcement.href === 'string' && announcement.href.startsWith('/')) navigate(announcement.href)
+  }
 
   const enroll = async (listing) => {
     const initialTotal = Number(listing.admissionFee || 0) + Number((listing.monthlyTuitionFee ?? listing.fee) || 0)
     if (initialTotal > 0) {
       setActionError('')
-      setSelectedListing(listing)
-      setPaymentMethodModalOpen(true)
+      setStripePaymentType('initial')
+      setStripeListing(listing)
       return
     }
     setEnrolling(String(listing._id))
@@ -158,51 +206,135 @@ export function StudentDashboard() {
     }
   }
 
-  const handleBkashSuccess = ({ trxID, amount }) => {
-    const listingTotal = Number(bkashListing?.admissionFee || 0) + Number((bkashListing?.monthlyTuitionFee ?? bkashListing?.fee) || 0)
-    setNotice(`Payment of ${money(amount || listingTotal)} recorded. TrxID: ${trxID}. You are now enrolled in ${bkashListing?.name}.`)
-    refresh()
+  const startMonthlyPayment = (subscription) => {
+    setStripePaymentType('monthly')
+    setStripeListing({
+      _id: subscription.listingId,
+      name: subscription.courseName,
+      monthlyTuitionFee: subscription.amount,
+      fee: subscription.amount,
+      admissionFee: 0,
+    })
   }
 
-  const handleCloseBkash = () => {
-    setBkashListing(null)
-    refresh()
-  }
-
-  const handleStripeSuccess = ({ trxID, amount }) => {
-    const listingTotal = Number(stripeListing?.admissionFee || 0) + Number((stripeListing?.monthlyTuitionFee ?? stripeListing?.fee) || 0)
-    setNotice(`Payment of ${money(amount || listingTotal)} recorded. Session: ${trxID}. You are now enrolled in ${stripeListing?.name}.`)
-    refresh()
-  }
-
-  const handleCloseStripe = () => {
-    setStripeListing(null)
-    refresh()
-  }
-
-  const handlePaymentMethodSelect = (method) => {
-    setPaymentMethodModalOpen(false)
-    if (method === 'stripe') {
-      setStripeListing(selectedListing)
-    } else {
-      setBkashListing(selectedListing)
+  const cancelMonthlyTuition = async (subscription) => {
+    setCancellingSubscription(subscription.listingId)
+    setActionError('')
+    try {
+      await api.post(`/student/courses/${encodeURIComponent(subscription.listingId)}/cancel`)
+      setSubscriptions((items) => items.map((item) =>
+        item.listingId === subscription.listingId ? { ...item, status: 'cancelled', renewalCancelled: true } : item,
+      ))
+      setNotice(`Renewal cancelled for ${subscription.courseName}. Access continues until the current paid period ends.`)
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.message || 'Could not cancel monthly tuition.')
+    } finally {
+      setCancellingSubscription('')
     }
-    setSelectedListing(null)
   }
 
-  const handlePaymentMethodClose = () => {
-    setPaymentMethodModalOpen(false)
-    setSelectedListing(null)
-  }
-
-  return <StudentLayout title={`Welcome back, ${name}`} description="Here is what is happening with your learning today.">
-    <StudentStatus error={error || catalogError || actionError} notice={notice} onRetry={refresh} />
+  return <StudentLayout title={`Welcome back, ${name}`} description="Continue your courses and stay up to date with your teachers.">
+    <StudentStatus error={error || catalogError || actionError || announcementsError} notice={notice} onRetry={refresh} />
     {loading ? <div className="student-state" role="status">Loading your learning dashboard...</div> : <>
-      <section className="student-stat-grid" aria-label="Learning overview">
-        <article><span className="student-stat-icon purple"><FiBookOpen /></span><div><small>My classes</small><strong>{dashboard?.stats.enrolledCourses || 0}</strong><span>Active enrollments</span></div></article>
+      <div className="student-learning-dashboard">
+        <div className="student-learning-main">
+          <section className="student-featured-course" aria-label="Continue your course">
+            {featuredCourse ? <>
+              <Link className="student-featured-image" to={`/student/course/${encodeURIComponent(featuredEnrollment.listingId)}/learn`} aria-label={`Continue ${featuredCourse.name}`}>
+                {featuredCourse.image ? <img src={featuredCourse.image} alt="" /> : <FiBookOpen />}
+              </Link>
+              <div className="student-featured-copy">
+                <span className="student-featured-batch">{featuredCourse.courseName || featuredCourse.category || 'Enrolled course'}</span>
+                <h2>{featuredCourse.name}</h2>
+                <div className="student-course-progress-label"><span>Progress</span><div className="student-course-progress"><span style={{ width: `${featuredProgress?.progressPercent || 0}%` }} /></div><strong>{featuredProgress?.progressPercent || 0}%</strong></div>
+                <p className="student-current-lesson">{featuredProgress?.currentLesson ? <><FiPlay /> {featuredProgress.currentLesson.title}</> : 'Course lessons are not available yet.'}</p>
+                <div className="student-featured-actions"><Link className="student-primary-button" to={`/student/course/${encodeURIComponent(featuredEnrollment.listingId)}/learn`}>Continue Course</Link><Link className="student-outline-button" to={`/student/course/${encodeURIComponent(featuredEnrollment.listingId)}/learn?outline=1`}>Course Outline</Link></div>
+              </div>
+            </> : <div className="student-featured-empty"><FiBookOpen /><div><h2>Start learning online</h2><p>Enroll in a course to see your progress and continue lessons here.</p><Link to="/student/classes">Browse courses <FiArrowRight /></Link></div></div>}
+          </section>
+          <section className="student-all-courses" aria-labelledby="student-all-courses-title">
+            <header><div><h2 id="student-all-courses-title">All Courses</h2><p>Your enrolled courses and learning progress.</p></div><Link to="/student/classes">Manage classes <FiArrowRight /></Link></header>
+            {enrollments.length ? <div className="student-learning-course-grid">{enrollments.map((enrollment) => {
+              const course = enrollment.listing
+              const progress = progressByListing.get(String(enrollment.listingId))
+              const learningUrl = `/student/course/${encodeURIComponent(enrollment.listingId)}/learn`
+              return <article className="student-learning-course-card" key={enrollment._id}>
+                <Link className="student-learning-course-cover" to={learningUrl}>
+                  {course?.image ? <img src={course.image} alt="" loading="lazy" /> : <FiBookOpen />}
+                  <span>{course?.category || 'Online course'}</span>
+                </Link>
+                <div className="student-learning-course-body"><h3>{course?.courseName || course?.name || enrollment.name}</h3>
+                  {course?.courseName && course.courseName !== course.name && <p>{course.name}</p>}
+                  <div className="student-course-card-progress"><span><i style={{ width: `${progress?.progressPercent || 0}%` }} /></span><strong>{progress?.progressPercent || 0}%</strong></div>
+                  <Link className="student-learning-continue" to={learningUrl}>Continue Course <FiArrowRight /></Link>
+                </div>
+              </article>
+            })}</div> : <div className="student-empty-inline"><FiBookOpen /><strong>No enrolled courses yet</strong><span>Enroll in a published course to see it here.</span><Link to="/student/classes">Browse courses <FiArrowRight /></Link></div>}
+          </section>
+        </div>
+        <aside className="student-learning-aside">
+          <section className="student-announcements" aria-labelledby="student-announcements-title">
+            <header><h2 id="student-announcements-title">Announcements</h2></header>
+            {announcementsError ? <div className="student-announcement-empty" role="alert"><FiBell /><strong>Announcements unavailable</strong><span>{announcementsError}</span></div> : announcements.length ? <>
+              <div className="student-announcement-list">{(showAllAnnouncements ? announcements : announcements.slice(0, 1)).map((announcement) => <article className="student-announcement" key={announcement._id}>
+                <div className="student-announcement-top"><span className="student-announcement-icon"><FiBell /></span><div><small>{dateLabel(announcement.createdAt, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small><h3>{announcement.title}</h3></div></div>
+                <p>{announcement.message}</p><button type="button" onClick={() => openAnnouncement(announcement)}>View Details <FiArrowRight /></button>
+              </article>)}</div>
+              <button className="student-announcements-all" type="button" onClick={() => setShowAllAnnouncements((value) => !value)}>{showAllAnnouncements ? 'Show Latest' : 'See All Announcements'}</button>
+            </> : <div className="student-announcement-empty"><FiBell /><strong>No announcements yet</strong><span>Course and teacher updates will appear here.</span></div>}
+          </section>
+          <section className="student-support-schedule" aria-labelledby="student-support-title">
+            <header><h2 id="student-support-title">Support Sessions</h2><p>Availability shared by your course teachers.</p></header>
+            <div className="student-support-days">{weekDays.map((day, index) => {
+              const sessions = supportByDay.get(index) || []
+              return <article className={index === todayWeekday ? 'today' : ''} key={day}>
+                <strong>{day.slice(0, 3)}</strong>
+                {sessions.length ? <div>{sessions.map((session) => <span key={session._id}>{session.startTime}–{session.endTime}<small>{session.teacherName} · {session.title}</small></span>)}</div> : <span className="student-support-none">No session scheduled</span>}
+              </article>
+            })}</div>
+          </section>
+        </aside>
+      </div>
+      {subscriptions.length > 0 && <section className="student-panel student-billing-panel" aria-label="Monthly course tuition">
+        <div className="student-panel-heading"><div><span className="student-eyebrow">Monthly billing</span><h2>Course tuition</h2></div></div>
+        <div className="student-billing-list">{subscriptions.map((subscription) => {
+          const isOverdue = subscription.status === 'expired'
+          const isDueSoon = subscription.paymentDue && subscription.status === 'active'
+          return <article className={`student-billing-row${isOverdue ? ' is-overdue' : isDueSoon ? ' is-due-soon' : ''}`} key={subscription.listingId}>
+            <div>
+              <strong>{subscription.courseName}</strong>
+              <span>{money(subscription.amount)} / month · Stripe manual renewal</span>
+              <small>
+                {subscription.billingExpiresAt ? `Access through ${dateLabel(subscription.billingExpiresAt)}` : 'No billing record'} ·{' '}
+                <span className={`student-billing-status ${subscription.status}`}>{subscription.status}</span>
+              </small>
+              {isDueSoon && subscription.daysUntilExpiry <= 7 && (
+                <small className="student-billing-reminder">
+                  {subscription.daysUntilExpiry <= 0 ? 'Access expired — pay to restore access.' : `Access expires in ${subscription.daysUntilExpiry} day${subscription.daysUntilExpiry === 1 ? '' : 's'} — pay now to continue.`}
+                </small>
+              )}
+            </div>
+            <div className="student-billing-actions">
+              {subscription.paymentDue && !subscription.renewalCancelled && (
+                <button type="button" className="student-billing-pay" onClick={() => startMonthlyPayment(subscription)}>
+                  Pay monthly fee
+                </button>
+              )}
+              {!subscription.renewalCancelled && subscription.status !== 'expired' && (
+                <button type="button" className="student-billing-cancel" disabled={cancellingSubscription === subscription.listingId} onClick={() => cancelMonthlyTuition(subscription)}>
+                  {cancellingSubscription === subscription.listingId ? 'Cancelling...' : 'Cancel renewal'}
+                </button>
+              )}
+            </div>
+          </article>
+        })}</div>
+        <p className="student-billing-note">Each month you must manually pay your tuition to maintain course access. Cancelling stops future payment reminders; access lasts through the current paid period.</p>
+      </section>}
+      <section className="student-stat-grid student-dashboard-summary" aria-label="Learning overview">
+        <article><span className="student-stat-icon purple"><FiBookOpen /></span><div><small>My courses</small><strong>{dashboard?.stats.enrolledCourses || 0}</strong><span>Active enrollments</span></div></article>
         <article><span className="student-stat-icon mint"><FiFileText /></span><div><small>To do</small><strong>{dashboard?.stats.pendingAssignments || 0}</strong><span>Assignments to submit</span></div></article>
         <article><span className="student-stat-icon blue"><FiCheckCircle /></span><div><small>Submitted</small><strong>{dashboard?.stats.submittedAssignments || 0}</strong><span>Work turned in</span></div></article>
-        <article><span className="student-stat-icon peach"><FiShield /></span><div><small>Course fees</small><strong>{money(enrollments.reduce((sum, item) => sum + (Number(item.initialPaymentTotal) || 0), 0))}</strong><span>Initial payments for enrolled courses</span></div></article>
+        <article><span className="student-stat-icon peach"><FiCalendar /></span><div><small>Upcoming classes</small><strong>{(dashboard?.liveClasses || []).filter((item) => item.status === 'upcoming').length}</strong><span>Scheduled online sessions</span></div></article>
       </section>
       <div className="student-dashboard-columns">
         <section className="student-panel">
@@ -219,25 +351,12 @@ export function StudentDashboard() {
         {listings.length ? <div className="student-discovery-grid">{listings.map((listing) => <DiscoveryCard key={listing._id} listing={listing} isEnrolled={enrolledIds.has(String(listing._id))} enrolling={enrolling} onEnroll={enroll} />)}</div> : <div className="student-empty-inline"><FiSearch /><strong>No published courses yet</strong><span>Check back soon for newly published classes.</span></div>}
       </section>
     </>}
-    {paymentMethodModalOpen && selectedListing && (
-      <PaymentMethodModal
-        listing={selectedListing}
-        onClose={handlePaymentMethodClose}
-        onMethod={handlePaymentMethodSelect}
-      />
-    )}
-    {bkashListing && (
-      <BkashPaymentFlow
-        listing={bkashListing}
-        onClose={handleCloseBkash}
-        onSuccess={handleBkashSuccess}
-      />
-    )}
     {stripeListing && (
       <StripePaymentFlow
         listing={stripeListing}
-        onClose={handleCloseStripe}
-        onSuccess={handleStripeSuccess}
+        paymentType={stripePaymentType}
+        onClose={() => { setStripeListing(null) }}
+        onAlreadyEnrolled={(msg) => { setStripeListing(null); setNotice(msg); refresh() }}
       />
     )}
   </StudentLayout>
@@ -250,13 +369,10 @@ export function StudentClasses() {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState('enrolled')
   const [busy, setBusy] = useState('')
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(() => paymentMessages[searchParams.get('payment')] || '')
   const [catalogError, setCatalogError] = useState('')
   const [actionError, setActionError] = useState('')
-  const [bkashListing, setBkashListing] = useState(null)
   const [stripeListing, setStripeListing] = useState(null)
-  const [selectedListing, setSelectedListing] = useState(null)
-  const [paymentMethodModalOpen, setPaymentMethodModalOpen] = useState(false)
   useEffect(() => {
     let current = true
     api.get('/listings', { params: { page: 1, limit: 100 } }).then(({ data }) => {
@@ -268,6 +384,12 @@ export function StudentClasses() {
   }, [])
   const enrollments = dashboard?.enrollments || []
   const liveClasses = dashboard?.liveClasses ?? emptyList
+  const learningProgress = dashboard?.learningProgress ?? emptyList
+  const progressByListing = new Map(learningProgress.map((item) => [String(item.listingId), item]))
+  const courseNames = new Map(enrollments.map((enrollment) => [
+    String(enrollment.listingId),
+    enrollment.listing?.name || enrollment.name || 'Course',
+  ]))
   const enrolledIds = new Set(enrollments.map((item) => String(item.listingId)))
   const items = mode === 'enrolled'
     ? enrollments.map((item) => ({ ...item.listing, _enrollment: item }))
@@ -278,8 +400,7 @@ export function StudentClasses() {
     const initialTotal = Number(listing.admissionFee || 0) + Number((listing.monthlyTuitionFee ?? listing.fee) || 0)
     if (initialTotal > 0) {
       setActionError('')
-      setSelectedListing(listing)
-      setPaymentMethodModalOpen(true)
+      setStripeListing(listing)
       return
     }
     setBusy(String(listing._id))
@@ -297,39 +418,12 @@ export function StudentClasses() {
     }
   }
 
-  const handleBkashSuccess = ({ trxID, amount }) => {
-    const listingTotal = Number(bkashListing?.admissionFee || 0) + Number((bkashListing?.monthlyTuitionFee ?? bkashListing?.fee) || 0)
-    setNotice(`Payment of ${money(amount || listingTotal)} recorded. TrxID: ${trxID}. You are now enrolled in ${bkashListing?.name}.`)
-    refresh()
-    setMode('enrolled')
-  }
-
-  const handleCloseBkash = () => {
-    setBkashListing(null)
-    refresh()
-    setMode('enrolled')
-  }
-
-  const handleStripeSuccess = ({ trxID, amount }) => {
-    const listingTotal = Number(stripeListing?.admissionFee || 0) + Number((stripeListing?.monthlyTuitionFee ?? stripeListing?.fee) || 0)
-    setNotice(`Payment of ${money(amount || listingTotal)} recorded. Session: ${trxID}. You are now enrolled in ${stripeListing?.name}.`)
-    refresh()
-    setMode('enrolled')
-  }
-
-  const handleCloseStripe = () => {
-    setStripeListing(null)
-    refresh()
-    setMode('enrolled')
-  }
+  const handleCloseStripe = () => { setStripeListing(null) }
 
   const handlePaymentMethodSelect = (method) => {
     setPaymentMethodModalOpen(false)
-    if (method === 'stripe') {
-      setStripeListing(selectedListing)
-    } else {
-      setBkashListing(selectedListing)
-    }
+    if (method === 'bkash') setBkashListing(selectedListing)
+    else setStripeListing(selectedListing)
     setSelectedListing(null)
   }
 
@@ -344,37 +438,60 @@ export function StudentClasses() {
       <button type="button" role="tab" aria-selected={mode === 'enrolled'} onClick={() => setMode('enrolled')}>Enrolled ({enrollments.length})</button>
       <button type="button" role="tab" aria-selected={mode === 'discover'} onClick={() => setMode('discover')}>Discover courses</button>
     </div><label className="student-search"><FiSearch /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search classes" placeholder="Search courses..." /></label></div>
+    {mode === 'enrolled' && !loading && <section className="student-panel">
+      <div className="student-panel-heading"><div><span className="student-eyebrow">Online learning schedule</span><h2>Upcoming and past classes</h2></div></div>
+      {liveClasses.length ? <div className="student-session-list">{liveClasses.map((session) => <article className="student-session-row" key={`${session.source || 'session'}-${session._id}`}>
+        <div><strong>{session.topic || session.title || 'Online class'}</strong><span>{courseNames.get(String(session.listingId)) || 'Enrolled course'}</span><small>{dateLabel(session.classDate, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}{session.startTime ? ` · ${session.startTime}` : ''}</small></div>
+        <span className={`student-session-status ${session.status}`}>{session.status}</span>
+        {session.meetUrl ? <a href={session.meetUrl} target="_blank" rel="noreferrer"><FiExternalLink /> Join class</a> : <span className="student-muted">Meeting link not added</span>}
+      </article>)}</div> : <div className="student-empty-inline"><FiCalendar /><strong>No scheduled online classes</strong><span>Your teachers' upcoming class schedule and meeting links will appear here.</span></div>}
+    </section>}
     {loading ? <div className="student-state" role="status">Loading classes...</div> : filtered.length ? <div className="student-class-grid">{filtered.map((listing) => {
       const enrollment = listing._enrollment
+      const progress = enrollment ? progressByListing.get(String(enrollment.listingId)) : null
+      const recordedCount = progress?.totalLessons || 0
       return <article className="student-class-card" key={listing._id}>
         {listing.image && <img className="student-class-cover" src={listing.image} alt="" loading="lazy" />}
         <div className="student-class-card-body"><span className="student-category">{listing.category}</span><h2>{listing.name}</h2><p className="student-teacher-name"><FiUsers /> {listing.teacherName || 'TeachOS teacher'}</p>
           <div className="student-class-details"><span><FiClock /> {listing.duration}</span><span><FiTag /> {listing.location}</span><span><FiCalendar /> Starts {dateLabel(listing.startDate, { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
-          <div className="student-card-footer">{enrollment ? <><span className="student-enrolled-badge"><FiCheckCircle /> Enrolled {dateLabel(enrollment.enrolledAt, { month: 'short', day: 'numeric' })}</span><div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}><strong>{money(Number((listing.monthlyTuitionFee ?? listing.fee) || 0))}/month</strong><small>{Number(listing.admissionFee || 0) > 0 ? `Admission ${money(listing.admissionFee || 0)} paid once` : 'No admission fee'}</small></div></> : <><div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}><strong>{money(Number(listing.admissionFee || 0) + Number((listing.monthlyTuitionFee ?? listing.fee) || 0))}</strong><small>to join · then {money(Number((listing.monthlyTuitionFee ?? listing.fee) || 0))}/month</small></div><button type="button" disabled={busy === String(listing._id)} onClick={() => enroll(listing)}>{busy === String(listing._id) ? 'Starting...' : Number(listing.admissionFee || 0) + Number((listing.monthlyTuitionFee ?? listing.fee) || 0) > 0 ? 'Pay & enroll' : 'Enroll now'}</button></>}</div>
+          {enrollment && <><p className="student-recorded-count">{recordedCount ? `${recordedCount} published recorded ${recordedCount === 1 ? 'class' : 'classes'}` : 'No published recorded classes yet'}</p><Link className="student-primary-button student-class-continue" to={`/student/course/${encodeURIComponent(listing._id)}/learn`}><FiPlay /> {recordedCount ? 'View recorded classes' : 'Open course materials'}</Link></>}
+          <div className="student-card-footer">{enrollment ? <><span className="student-enrolled-badge"><FiCheckCircle /> Enrolled {dateLabel(enrollment.enrolledAt, { month: 'short', day: 'numeric' })}</span><div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{(listing.pricingType === 'ONE_TIME' || (!listing.monthlyTuitionFee && Number(listing.fee) > 0 && listing.pricingType !== 'MONTHLY_SUBSCRIPTION')) ? <><strong>{money(Number(listing.fee || listing.admissionFee || 0))}</strong><small style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontWeight: 700 }}>Lifetime Access</span>one-time</small></> : <><strong>{money(Number((listing.monthlyTuitionFee ?? listing.fee) || 0))}/month</strong><small>{Number(listing.admissionFee || 0) > 0 ? `Admission ${money(listing.admissionFee || 0)} paid once` : 'No admission fee'}</small></>}</div></> : <><div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{(listing.pricingType === 'ONE_TIME' || (!listing.monthlyTuitionFee && Number(listing.fee) > 0 && listing.pricingType !== 'MONTHLY_SUBSCRIPTION')) ? <><strong>{money(Number(listing.fee || listing.admissionFee || 0))}</strong><small style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontWeight: 700 }}>Lifetime Access</span>one-time</small></> : <><strong>{money(Number(listing.admissionFee || 0) + Number((listing.monthlyTuitionFee ?? listing.fee) || 0))}</strong><small>to join · then {money(Number((listing.monthlyTuitionFee ?? listing.fee) || 0))}/month</small></>}</div><button type="button" disabled={busy === String(listing._id)} onClick={() => enroll(listing)}>{busy === String(listing._id) ? 'Starting...' : Number(listing.admissionFee || 0) + Number((listing.monthlyTuitionFee ?? listing.fee) || 0) > 0 ? 'Pay & enroll' : 'Enroll now'}</button></>}</div>
         </div>
       </article>
     })}</div> : <EmptyState icon={mode === 'enrolled' ? FiBookOpen : FiSearch} title={mode === 'enrolled' ? 'No enrolled classes yet' : 'No matching courses'} copy={mode === 'enrolled' ? 'Browse the catalog and enroll in a course to see it here.' : 'Try a different search or check back for new courses.'} link={mode === 'enrolled' ? undefined : '/student/classes'} label={mode === 'enrolled' ? undefined : 'Clear search'} onClick={mode === 'discover' ? () => setQuery('') : undefined} />}
-    {paymentMethodModalOpen && selectedListing && (
-      <PaymentMethodModal
-        listing={selectedListing}
-        onClose={handlePaymentMethodClose}
-        onMethod={handlePaymentMethodSelect}
-      />
-    )}
-    {bkashListing && (
-      <BkashPaymentFlow
-        listing={bkashListing}
-        onClose={handleCloseBkash}
-        onSuccess={handleBkashSuccess}
-      />
-    )}
     {stripeListing && (
       <StripePaymentFlow
         listing={stripeListing}
         onClose={handleCloseStripe}
-        onSuccess={handleStripeSuccess}
+        onAlreadyEnrolled={(msg) => { setStripeListing(null); setNotice(msg); refresh(); setMode('enrolled') }}
       />
     )}
+  </StudentLayout>
+}
+
+export function StudentAttendance() {
+  const { dashboard, loading, error, refresh } = useStudentDashboard()
+  const attendance = dashboard?.attendance
+  const courses = attendance?.courses ?? emptyList
+  const history = attendance?.history ?? emptyList
+
+  return <StudentLayout title="Attendance" description="Review your course attendance from recorded online class sessions.">
+    <StudentStatus error={error} onRetry={refresh} />
+    {loading ? <div className="student-state" role="status">Loading your attendance records...</div> : <>
+      <section className="student-stat-grid" aria-label="Attendance summary">
+        <article><span className="student-stat-icon purple"><FiCalendar /></span><div><small>Total classes</small><strong>{attendance?.totalClasses || 0}</strong><span>Recorded sessions</span></div></article>
+        <article><span className="student-stat-icon mint"><FiCheckCircle /></span><div><small>Attended</small><strong>{attendance?.attendedClasses || 0}</strong><span>Marked present</span></div></article>
+        <article><span className="student-stat-icon peach"><FiClock /></span><div><small>Absent</small><strong>{attendance?.absentClasses || 0}</strong><span>Marked absent</span></div></article>
+      </section>
+      <section className="student-panel student-fee-panel">
+        <div className="student-panel-heading"><div><span className="student-eyebrow">Course summary</span><h2>Attendance by course</h2></div></div>
+        {courses.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Course</th><th>Total classes</th><th>Attended</th><th>Absent</th><th>Attendance</th></tr></thead><tbody>{courses.map((course) => <tr key={course.listingId}><td><strong>{course.courseName}</strong></td><td>{course.totalClasses}</td><td>{course.attendedClasses}</td><td>{course.absentClasses}</td><td>{course.attendancePercentage}%</td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCheckCircle /><strong>No attendance records yet</strong><span>Your attendance summary will appear after your teacher records a class session.</span></div>}
+      </section>
+      <section className="student-panel student-fee-panel">
+        <div className="student-panel-heading"><div><span className="student-eyebrow">Session records</span><h2>Attendance history</h2></div></div>
+        {history.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Date</th><th>Course</th><th>Topic</th><th>Status</th><th>Duration</th></tr></thead><tbody>{history.map((record) => <tr key={`${record.listingId}-${record.sessionId}`}><td>{dateLabel(record.date, { month: 'short', day: 'numeric', year: 'numeric' })}</td><td>{record.courseName}</td><td>{record.topic}</td><td><span className={`student-payment-status ${record.status}`}>{record.status}</span></td><td>{record.durationMinutes ? `${record.durationMinutes} min` : '—'}</td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCalendar /><strong>Attendance history is empty</strong><span>Only records saved by your teacher are included; unrecorded classes are not assumed absent.</span></div>}
+      </section>
+    </>}
   </StudentLayout>
 }
 
@@ -449,7 +566,13 @@ export function StudentPayments() {
     const rows = [
       ['Date', 'Course / record', 'Teacher', 'Amount (BDT)', 'Status'],
       ...fees.map((item) => [dateLabel(item.enrolledAt), item.name, item.teacherName, Number(item.fee || 0).toFixed(2), 'Course fee']),
-      ...payments.map((item) => [dateLabel(item.createdAt), item.courseName || item.description || 'Payment', item.mode === 'bkash' ? `bKash (${item.trxID || item.reference || 'Paid'})` : item.mode === 'demo' ? 'Local BDT demo' : item.reference || '', Number(item.amount || 0).toFixed(2), item.mode === 'demo' ? 'Demo paid' : item.status || 'Recorded']),
+      ...payments.map((item) => [
+        dateLabel(item.paidAt || item.createdAt),
+        item.courseName || item.description || 'Payment',
+        fees.find((fee) => String(fee.listingId) === String(item.listingId))?.teacherName || item.teacherName || '',
+        Number(item.amount || 0).toFixed(2),
+        item.status || 'Recorded',
+      ]),
     ]
     const csv = rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
@@ -463,13 +586,16 @@ export function StudentPayments() {
   return <StudentLayout title="Payments & billing" description="Review course fees and payment records associated with your account.">
     <StudentStatus error={error} />
     {loading ? <div className="student-state" role="status">Loading your billing records...</div> : <>
-      <section className="student-billing-summary"><article><span>Enrolled course fees</span><strong>{money(amountInCourseFees)}</strong><small>Fees listed by your teachers at enrollment</small></article><article><span>Live payments</span><strong>{money(billing?.paidTotal)}</strong><small>Confirmed live BDT transactions only</small></article><article><span>Stripe test payments</span><strong>{money(billing?.testTotal)}</strong><small>Excluded from earnings and commission</small></article></section>
-      <div className="student-billing-note"><FiShield /><p><strong>Stripe test mode:</strong> checkout uses Stripe test credentials and does not collect real money. A confirmed test payment can unlock course enrollment, but is excluded from teacher income and TeachOS commission.</p></div>
+      <section className="student-billing-summary"><article><span>Enrolled course fees</span><strong>{money(amountInCourseFees)}</strong><small>Fees listed by your teachers at enrollment</small></article><article><span>Live payments</span><strong>{money(billing?.paidTotal)}</strong><small>Confirmed live BDT transactions only</small></article><article><span>Test &amp; sandbox payments</span><strong>{money(billing?.testTotal)}</strong><small>Excluded from earnings and commission</small></article></section>
+      <div className="student-billing-note"><FiShield /><p><strong>Records only:</strong> this ledger displays course fees and payment records. Test payments can unlock enrollment in test mode but are excluded from teacher income and TeachOS commission.</p></div>
       <section className="student-panel student-fee-panel"><div className="student-panel-heading"><div><span className="student-eyebrow">Enrollment records</span><h2>Course fees</h2></div></div>
-        {fees.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Course</th><th>Teacher</th><th>Admission (BDT)</th><th>Monthly Tuition (BDT)</th><th>Initial Payment (BDT)</th><th>Enrolled</th><th>Status</th></tr></thead><tbody>{fees.map((item) => <tr key={String(item.listingId)}><td><strong>{item.name}</strong></td><td>{item.teacherName || 'TeachOS teacher'}</td><td>{money(item.admissionFee || 0)}</td><td>{money(item.monthlyTuitionFee || 0)}</td><td>{money(item.initialPaymentTotal || 0)}</td><td>{dateLabel(item.enrolledAt)}</td><td><span className={`student-payment-status ${item.admissionPaid && item.tuitionPaid ? 'paid' : 'pending'}`}>{item.admissionPaid && item.tuitionPaid ? 'Initial paid' : 'Initial due'}</span></td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCreditCard /><strong>No course fees yet</strong><span>Enroll in a course to see its fee breakdown here.</span><Link to="/student/classes">Browse courses <FiArrowRight /></Link></div>}
+        {fees.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Course</th><th>Teacher</th><th>Admission (BDT)</th><th>Monthly Tuition (BDT)</th><th>Initial Payment (BDT)</th><th>Enrolled</th><th>Status</th></tr></thead><tbody>{fees.map((item) => <tr key={String(item.listingId)}><td><Link className="student-ledger-course-link" to={`/student/course/${encodeURIComponent(String(item.listingId))}/learn`}>{item.name}</Link></td><td>{item.teacherName || 'TeachOS teacher'}</td><td>{money(item.admissionFee || 0)}</td><td>{money(item.monthlyTuitionFee || 0)}</td><td>{money(item.initialPaymentTotal || 0)}</td><td>{dateLabel(item.enrolledAt)}</td><td><span className={`student-payment-status ${item.admissionPaid && item.tuitionPaid ? 'paid' : 'pending'}`}>{item.admissionPaid && item.tuitionPaid ? 'Initial paid' : 'Initial due'}</span></td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCreditCard /><strong>No course fees yet</strong><span>Enroll in a course to see its fee breakdown here.</span><Link to="/student/classes">Browse courses <FiArrowRight /></Link></div>}
       </section>
       <section className="student-panel student-fee-panel"><div className="student-panel-heading"><div><span className="student-eyebrow">Account activity</span><h2>Payment history</h2></div><button className="student-outline-button" type="button" onClick={downloadStatement}><FiDownload /> Download statement</button></div>
-        {payments.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Date</th><th>Course</th><th>Billing period</th><th>Payment type</th><th>Amount (BDT)</th><th>Status</th></tr></thead><tbody>{payments.map((item) => <tr key={item._id}><td>{dateLabel(item.createdAt)}</td><td>{item.courseName || item.description || 'Student payment'}</td><td>{item.billingPeriod || '—'}</td><td>{item.initialPaymentTotal ? 'Admission + 1st month tuition' : item.mode === 'bkash' ? 'Monthly tuition' : item.mode === 'demo' ? 'Local demo' : '—'}</td><td>{money(item.amount)}</td><td><span className={`student-payment-status ${item.status || 'recorded'}`}>{item.mode === 'demo' ? 'Demo paid' : item.status || 'recorded'}</span></td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCreditCard /><strong>No payment records</strong><span>When a payment is recorded for your account, it will appear here.</span></div>}
+        {payments.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Date</th><th>Course</th><th>Teacher</th><th>Billing period</th><th>Payment type</th><th>Amount (BDT)</th><th>Status</th></tr></thead><tbody>{payments.map((item) => {
+          const course = fees.find((fee) => String(fee.listingId) === String(item.listingId))
+          return <tr key={item._id}><td>{dateLabel(item.paidAt || item.createdAt)}</td><td>{item.listingId ? <Link className="student-ledger-course-link" to={`/student/course/${encodeURIComponent(String(item.listingId))}/learn`}>{item.courseName || course?.name || 'Course payment'}</Link> : item.courseName || item.description || 'Student payment'}</td><td>{course?.teacherName || item.teacherName || '—'}</td><td>{item.billingPeriod || '—'}</td><td>{item.paymentType === 'initial' ? 'Admission + 1st month tuition' : item.paymentType === 'monthly' ? 'Monthly tuition' : item.paymentMethod || item.gateway || '—'}</td><td>{money(item.amount)}{Number(item.refundedAmount) > 0 ? ` · refunded ${money(item.refundedAmount)}` : ''}</td><td><span className={`student-payment-status ${item.status || 'recorded'}`}>{item.status || 'recorded'}</span></td></tr>
+        })}</tbody></table></div> : <div className="student-empty-inline"><FiCreditCard /><strong>No payment records</strong><span>When a payment is recorded for your account, it will appear here.</span></div>}
       </section>
     </>}
   </StudentLayout>
@@ -477,7 +603,7 @@ export function StudentPayments() {
 
 function CourseRow({ enrollment }) {
   const listing = enrollment.listing || {}
-  return <article className="student-course-row"><div className="student-course-icon"><FiBookOpen /></div><div className="student-course-info"><h3>{listing.name || enrollment.name}</h3><p>{listing.category || enrollment.category} · {listing.teacherName || enrollment.teacherName}</p></div><span className="student-course-location">{listing.location || enrollment.location}</span><Link to="/student/classes" aria-label={`Open ${listing.name || enrollment.name}`}><FiArrowRight /></Link></article>
+  return <article className="student-course-row"><div className="student-course-icon"><FiBookOpen /></div><div className="student-course-info"><h3>{listing.name || enrollment.name}</h3><p>{listing.category || enrollment.category} · {listing.teacherName || enrollment.teacherName}</p></div><span className="student-course-location">{listing.location || enrollment.location}</span><Link to={`/student/course/${encodeURIComponent(enrollment.listingId)}/learn`} aria-label={`Continue ${listing.name || enrollment.name}`}><FiArrowRight /></Link></article>
 }
 
 function AssignmentRow({ assignment }) {

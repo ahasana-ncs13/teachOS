@@ -22,6 +22,7 @@
 .class-management-card::before { position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--classes-blue); content: ''; }
 .class-management-card.upcoming::before { background: #54a88a; }
 .class-management-card.completed::before { background: #c9cdd3; }
+.class-management-card.banned::before { background: #ba1a1a; }
 .class-management-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(19,38,65,.09); }
 .class-management-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; }
 .class-department { display: inline-block; margin-bottom: 7px; padding: 4px 7px; border-radius: 3px; background: var(--tint-3); color: var(--blue-deep); font-size: 10px; font-weight: 700; }
@@ -33,16 +34,25 @@
 .class-status i { width: 6px; height: 6px; border-radius: 50%; background: #36a969; }
 .class-status.upcoming i { background: var(--blue); }
 .class-status.completed i { background: #9da5af; }
+.class-status.banned { border-color: #ffd5d1; background: #fff1ef; color: #a51d16; }
+.class-status.banned i { background: #ba1a1a; }
 .class-management-meta { display: grid; gap: 12px; margin: 17px 0 16px; color: var(--classes-muted); }
 .class-management-meta p { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 11px; line-height: 1.4; }
 .class-management-meta svg { flex: 0 0 auto; color: #858d98; font-size: 15px; }
 .class-management-card.completed .class-management-meta { opacity: .75; }
-.class-management-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 31px; margin-top: auto; padding-top: 12px; border-top: 1px solid #edf0f3; }
+.class-management-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-height: 31px; margin-top: auto; padding-top: 12px; border-top: 1px solid #edf0f3; }
 .class-enrollment-progress { width: 50%; height: 5px; overflow: hidden; border-radius: 10px; background: #e6e9ed; }
 .class-enrollment-progress span { display: block; height: 100%; border-radius: inherit; background: var(--classes-navy); }
 .class-management-card.upcoming .class-enrollment-progress span { background: #54a88a; }
 .class-archive-label { color: var(--classes-muted); font-size: 10px; }
 .class-management-foot button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 0 4px 6px; border: 0; background: transparent; color: var(--classes-blue); font-size: 10px; font-weight: 700; cursor: pointer; }
+.class-management-foot button:disabled { cursor: wait; opacity: .6; }
+.class-management-foot .class-ban-button { color: #ad2922; }
+.class-management-foot .class-ban-button.unban { color: #237c57; }
+.class-ban-reason { margin: 0 0 9px; color: #a51d16; font-size: 10px; line-height: 1.4; }
+.classes-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 20px; color: var(--classes-muted); font-size: 11px; }
+.classes-pagination button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font-size: 11px; cursor: pointer; }
+.classes-pagination button:disabled { cursor: not-allowed; opacity: .5; }
 .class-create-tile { display: flex; min-height: 190px; flex-direction: column; align-items: center; justify-content: center; padding: 22px; border: 1px dashed #a9b1bb; border-radius: 10px; background: var(--tint); text-align: center; cursor: pointer; transition: border .2s, background .2s; }
 .class-create-tile:hover { border-color: var(--classes-blue); background: var(--tint-2); }
 .class-create-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 12px; border-radius: 50%; background: #e0e4e8; color: var(--ink); font-size: 18px; transition: background .2s, color .2s; }

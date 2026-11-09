@@ -632,3 +632,94 @@
   .st-modal { border-radius: 12px 12px 0 0; align-self: flex-end; max-height: 92vh; }
   .st-backdrop { align-items: flex-end; padding: 0; }
 }
+
+/* ─── Added: icon close button & cancel button ─────────── */
+.st-btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  font-size: 18px;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  margin-left: auto;
+}
+.st-btn-icon:hover:not(:disabled) { background: #f0f0f5; color: #333; }
+.st-btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.st-btn-cancel {
+  padding: 11px 8px;
+  border: none;
+  border-radius: 8px;
+  background: #f0f0f5;
+  color: #666;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  font-family: inherit;
+}
+.st-btn-cancel:hover:not(:disabled) { background: #e0e0e8; }
+.st-btn-cancel:active:not(:disabled) { transform: scale(0.97); }
+.st-btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Billing status badges */
+.student-billing-status { font-weight: 700; text-transform: capitalize; }
+.student-billing-status.active  { color: #107c41; }
+.student-billing-status.expired { color: #dc2626; }
+.student-billing-status.cancelled { color: #888; }
+
+.student-billing-reminder {
+  display: block;
+  margin-top: 4px;
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.student-billing-row.is-overdue   { border-left: 3px solid #dc2626; }
+.student-billing-row.is-due-soon  { border-left: 3px solid #f59e0b; }
+
+.student-billing-pay {
+  padding: 7px 14px;
+  background: #635bff;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s;
+}
+.student-billing-pay:hover { background: #4a42d4; }
+
+/* st-mode-live used as paragraph info text */
+.st-mode-live {
+  font-size: 11px;
+  color: #555;
+  background: #f0f0f5;
+  border-radius: 6px;
+  padding: 8px 12px;
+  text-align: center;
+  line-height: 1.5;
+  max-width: 300px;
+  width: 100%;
+  margin: 0;
+}
+
+.st-error-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #635bff;
+  font-weight: 700;
+  text-decoration: none;
+  margin-left: 4px;
+}
+.st-error-link:hover { text-decoration: underline; }

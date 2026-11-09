@@ -3,8 +3,99 @@ import { requirePlatformActive, requireRole, verifyToken } from '../middleware/a
 import { getDatabase } from '../db.js'
 import * as platformService from '../services/platform.service.js'
 import { sanitizeInput, validatePagination, validateSchema } from '../utils/validation.js'
+import { getAdminListings, getPublicListingFilter, setListingBan } from '../services/listing.service.js'
+import {
+  applyVerifiedRefund,
+  getAdminFinancialOverview,
+  getMonthlyCommission,
+  settleTeacherWithdrawal,
+} from '../services/finance.service.js'
+import {
+  finalizeMonthlyAdminSettlement,
+  runAllScheduledFinancialJobs,
+} from '../services/settlementScheduler.service.js'
+import { excludeLegacySampleUsers } from '../utils/sampleData.js'
+import { writeAuditLog } from '../services/audit.service.js'
 
 export const platformRouter = Router()
+
+platformRouter.get('/teachers/leaderboard', async (_req, res, next) => {
+  try {
+    const database = getDatabase()
+    const listings = await database.collection('listings').find(
+      getPublicListingFilter(),
+      { projection: { _id: 1, teacherUid: 1, teacherName: 1, name: 1, category: 1 } },
+    ).toArray()
+    const listingIds = listings.map((listing) => listing._id)
+    if (!listingIds.length) return res.json({ teachers: [], rankingBasis: 'Active student enrollments, recorded attendance, then published course count.' })
+
+    const [enrollmentCounts, attendanceCounts] = await Promise.all([
+      database.collection('studentEnrollments').aggregate([
+        { $match: { listingId: { $in: listingIds }, status: 'active' } },
+        { $group: { _id: '$listingId', count: { $sum: 1 } } },
+      ]).toArray(),
+      database.collection('sessionAttendance').aggregate([
+        { $match: { listingId: { $in: listingIds }, status: { $in: ['present', 'absent'] } } },
+        { $group: { _id: { listingId: '$listingId', status: '$status' }, count: { $sum: 1 } } },
+      ]).toArray(),
+    ])
+    const enrollmentsByListing = new Map(enrollmentCounts.map((record) => [String(record._id), record.count]))
+    const attendanceByListing = new Map()
+    for (const record of attendanceCounts) {
+      const listingId = String(record._id.listingId)
+      const counts = attendanceByListing.get(listingId) || { present: 0, total: 0 }
+      counts.total += record.count
+      if (record._id.status === 'present') counts.present += record.count
+      attendanceByListing.set(listingId, counts)
+    }
+
+    const teachersByUid = new Map()
+    for (const listing of listings) {
+      if (!listing.teacherUid) continue
+      const teacher = teachersByUid.get(listing.teacherUid) || {
+        teacherUid: listing.teacherUid,
+        name: listing.teacherName || 'TeachOS teacher',
+        publishedCourses: [],
+        enrolledStudents: 0,
+        attendance: { present: 0, total: 0 },
+      }
+      const listingId = String(listing._id)
+      const courseAttendance = attendanceByListing.get(listingId)
+      teacher.publishedCourses.push({ name: listing.name, category: listing.category, students: enrollmentsByListing.get(listingId) || 0 })
+      teacher.enrolledStudents += enrollmentsByListing.get(listingId) || 0
+      if (courseAttendance) {
+        teacher.attendance.present += courseAttendance.present
+        teacher.attendance.total += courseAttendance.total
+      }
+      teachersByUid.set(listing.teacherUid, teacher)
+    }
+
+    const teachers = [...teachersByUid.values()]
+      .map((teacher) => ({
+        name: teacher.name,
+        courseCount: teacher.publishedCourses.length,
+        enrolledStudents: teacher.enrolledStudents,
+        topCourse: [...teacher.publishedCourses].sort((a, b) => b.students - a.students)[0]?.name || '—',
+        attendancePercentage: teacher.attendance.total
+          ? Math.round((teacher.attendance.present / teacher.attendance.total) * 100)
+          : null,
+        rating: null,
+      }))
+      .sort((a, b) => b.enrolledStudents - a.enrolledStudents ||
+        (b.attendancePercentage ?? -1) - (a.attendancePercentage ?? -1) ||
+        b.courseCount - a.courseCount ||
+        a.name.localeCompare(b.name))
+      .slice(0, 10)
+      .map((teacher, index) => ({ rank: index + 1, ...teacher }))
+
+    res.json({
+      teachers,
+      rankingBasis: 'Active student enrollments, recorded attendance, then published course count. Ratings are not yet collected.',
+    })
+  } catch (error) {
+    next(error)
+  }
+})
 
 // Platform routes require token verification
 platformRouter.use(['/platforms', '/admin/billing'], verifyToken)
@@ -12,21 +103,14 @@ platformRouter.use(['/platforms', '/admin/billing'], verifyToken)
 platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (_req, res, next) => {
   try {
     const database = getDatabase()
-    const [teachers, students, listings, classes, commission, payouts, latestListings] = await Promise.all([
-      database.collection('users').countDocuments({ role: 'teacher', status: { $ne: 'removed' } }),
-      database.collection('users').countDocuments({ role: 'student', status: { $ne: 'removed' } }),
-      database.collection('listings').countDocuments({ status: { $ne: 'removed' } }),
-      database.collection('classes').countDocuments({ isSample: { $ne: true } }),
-      database.collection('payments').aggregate([
-        { $match: { type: 'earning', isSample: { $ne: true } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]).toArray(),
-      database.collection('payoutRequests').aggregate([
-        { $match: { isSample: { $ne: true } } },
-        { $group: { _id: null, total: { $sum: '$amount' }, pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0] } } } },
-      ]).toArray(),
+    const [teachers, students, listings, classes, adminOverview, latestListings] = await Promise.all([
+      database.collection('users').countDocuments(excludeLegacySampleUsers({ role: 'teacher', status: { $ne: 'removed' } })),
+      database.collection('users').countDocuments(excludeLegacySampleUsers({ role: 'student', status: { $ne: 'removed' } })),
+      database.collection('listings').countDocuments(getPublicListingFilter()),
+      database.collection('classes').countDocuments({ classType: 'live', isSample: { $ne: true } }),
+      getAdminFinancialOverview(database),
       database.collection('listings').find(
-        { status: 'active' },
+        getPublicListingFilter(),
         { projection: { teacherUid: 0, platformId: 0, removedAt: 0, removedBy: 0 } },
       ).sort({ createdAt: -1 }).limit(6).toArray(),
     ])
@@ -37,9 +121,25 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
         students,
         listings,
         classes,
-        recordedEarnings: commission[0]?.total || 0,
-        payoutRequests: payouts[0]?.total || 0,
-        pendingPayouts: payouts[0]?.pending || 0,
+        monthlyCommission: {
+          month: adminOverview.summary.month,
+          grossAmount: adminOverview.summary.monthlyGross,
+          commissionAmount: adminOverview.summary.recordedEarnings,
+          teacherNetAmount: adminOverview.summary.teacherNet,
+          refundedAmount: adminOverview.summary.monthlyRefunds,
+          paymentCount: adminOverview.summary.successfulTransactions,
+          teachers: adminOverview.summary.teacherBreakdown,
+        },
+        financialSummary: adminOverview.summary,
+        recordedEarnings: adminOverview.summary.recordedEarnings,
+        payoutRequests: adminOverview.summary.requestedPayouts || 0,
+        pendingPayouts: adminOverview.summary.pendingPayouts || 0,
+        totalGrossCourseRevenue: adminOverview.summary.totalGrossCourseRevenue,
+        totalPlatformCommission: adminOverview.summary.totalPlatformCommission,
+        currentMonthAccumulatedCommission: adminOverview.summary.currentMonthAccumulatedCommission,
+        finalizedMonthlyCommission: adminOverview.summary.finalizedMonthlyCommission,
+        teacherPendingEarnings: adminOverview.summary.teacherPendingEarnings,
+        teacherAvailableEarnings: adminOverview.summary.teacherAvailableEarnings,
         latestListings,
       },
     })
@@ -48,37 +148,257 @@ platformRouter.get('/admin/overview', verifyToken, requireRole('admin'), async (
   }
 })
 
-platformRouter.get('/admin/payments', verifyToken, requireRole('admin'), async (_req, res, next) => {
+platformRouter.get('/admin/listings', verifyToken, requireRole('admin'), async (req, res, next) => {
   try {
-    const database = getDatabase()
-    const [paymentRecords, payoutRecords, users] = await Promise.all([
-      database.collection('payments').find({ isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
-      database.collection('payoutRequests').find({ isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(100).toArray(),
-      database.collection('users').find({}, { projection: { uid: 1, fullName: 1, displayName: 1, email: 1 } }).toArray(),
-    ])
-    const usersByUid = new Map(users.map((user) => [user.uid, user.fullName || user.displayName || user.email || 'TeachOS user']))
-    const payments = paymentRecords.map((record) => ({
-      ...record,
-      person: usersByUid.get(record.uid) || 'TeachOS teacher',
-      recordType: 'earning',
-    }))
-    const payouts = payoutRecords.map((record) => ({
-      ...record,
-      person: usersByUid.get(record.uid) || 'TeachOS user',
-      recordType: 'payout',
-    }))
-    const requestedPayouts = payoutRecords.filter((record) => record.status !== 'rejected')
-      .reduce((total, record) => total + (Number(record.amount) || 0), 0)
+    const allowedQuery = new Set(['page', 'limit', 'search', 'category'])
+    if (Object.keys(req.query).some((key) => !allowedQuery.has(key)) ||
+        (req.query.search !== undefined && (typeof req.query.search !== 'string' || req.query.search.length > 150)) ||
+        (req.query.category !== undefined && (typeof req.query.category !== 'string' || req.query.category.length > 80))) {
+      const error = new Error('Invalid course listing filters.')
+      error.status = 400
+      error.code = 'INVALID_LISTING_FILTER'
+      throw error
+    }
+    const pagination = validatePagination(req.query)
+    const result = await getAdminListings({
+      ...pagination,
+      search: req.query.search || '',
+      category: req.query.category || '',
+    })
+    res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
 
+platformRouter.patch('/admin/listings/:id/moderation', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const body = sanitizeInput(req.body, ['banned', 'reason'])
+    validateSchema(body, {
+      banned: { required: true, type: 'boolean' },
+      reason: { required: false, type: 'string', max: 500 },
+    })
+    const listing = await setListingBan(req.params.id, {
+      banned: body.banned,
+      reason: body.reason || '',
+      actorUid: req.authUid,
+    })
     res.json({
-      payments,
-      payouts,
-      summary: {
-        requestedPayouts,
-        pendingPayouts: payoutRecords.filter((record) => record.status === 'pending')
-          .reduce((total, record) => total + (Number(record.amount) || 0), 0),
+      listing,
+      message: body.banned
+        ? 'Course manually banned. It is hidden from public course pages; payment status is unchanged.'
+        : 'Course unbanned. Its previous publication status is restored; payment status is unchanged.',
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+platformRouter.get('/admin/payments', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const allowed = new Set(['month', 'teacher', 'course', 'paymentType', 'paymentMethod'])
+    for (const key of Object.keys(req.query || {})) {
+      if (!allowed.has(key)) {
+        return res.status(400).json({ message: `Unknown filter: ${key}`, code: 'INVALID_PAYMENT_FILTER' })
+      }
+    }
+    const database = getDatabase()
+    const { month, teacher, course, paymentType, paymentMethod } = req.query
+    const result = await getAdminFinancialOverview(database, month, { teacher, course, paymentType, paymentMethod })
+
+    // Resolve user names for any unpopulated UIDs
+    const userUids = [...new Set([
+      ...result.payments.map((record) => record.teacherUid),
+      ...result.payouts.map((record) => record.uid || record.teacherUid),
+    ].filter(Boolean))]
+
+    if (userUids.length) {
+      const users = await database.collection('users').find(
+        { uid: { $in: userUids } },
+        { projection: { uid: 1, fullName: 1, displayName: 1, email: 1 } },
+      ).toArray()
+      const usersByUid = new Map(users.map((user) => [user.uid, user.fullName || user.displayName || user.email || 'TeachOS user']))
+
+      for (const p of result.payments) {
+        if (p.teacherUid && usersByUid.has(p.teacherUid)) {
+          p.person = usersByUid.get(p.teacherUid)
+        }
+      }
+      for (const p of result.payouts) {
+        const uid = p.uid || p.teacherUid
+        if (uid && usersByUid.has(uid)) {
+          p.person = usersByUid.get(uid)
+        }
+      }
+    }
+
+    res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+platformRouter.post('/admin/payments/:paymentId/refunds', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const body = req.body || {}
+    const allowedFields = new Set(['amount', 'externalReference'])
+    if (Object.keys(body).some((field) => !allowedFields.has(field)) ||
+        !Number.isFinite(body.amount) || body.amount <= 0 || body.amount > 10000000 ||
+        typeof body.externalReference !== 'string' ||
+        !/^[A-Za-z0-9._:/-]{1,120}$/.test(body.externalReference.trim()) ||
+        typeof req.params.paymentId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(req.params.paymentId)) {
+      return res.status(400).json({ message: 'Provide a valid refund amount and external bKash refund reference.', code: 'INVALID_REFUND_RECORD' })
+    }
+
+    const database = getDatabase()
+    const payment = await database.collection('studentPayments').findOne({
+      paymentId: req.params.paymentId,
+      gateway: 'bkash',
+      mode: 'live',
+      currency: 'BDT',
+      status: { $in: ['paid', 'refunded'] },
+    })
+    if (!payment || !payment.isVerified || !payment.providerTransactionId) {
+      return res.status(404).json({ message: 'Verified live bKash payment was not found.', code: 'PAYMENT_NOT_FOUND' })
+    }
+
+    const externalReference = body.externalReference.trim()
+    const refundEventId = `admin-refund:${externalReference}`
+    if (payment.refundEventIds?.includes(refundEventId)) {
+      return res.status(409).json({ message: 'This external refund reference has already been recorded.', code: 'REFUND_ALREADY_RECORDED' })
+    }
+    const currentRefund = Number(payment.refundedAmount) || 0
+    const nextRefund = Math.round((currentRefund + body.amount) * 100) / 100
+    if (nextRefund > Math.round(Number(payment.amount) * 100) / 100) {
+      return res.status(400).json({ message: 'The refund exceeds the remaining amount paid.', code: 'REFUND_EXCEEDS_PAYMENT' })
+    }
+
+    const applied = await applyVerifiedRefund(
+      database,
+      payment.providerTransactionId,
+      nextRefund,
+      refundEventId,
+      'bkash',
+    )
+    if (!applied) {
+      return res.status(409).json({ message: 'This refund was already recorded or the payment changed. Refresh and retry if needed.', code: 'REFUND_ALREADY_RECORDED' })
+    }
+    const updated = await database.collection('studentPayments').findOne({ _id: payment._id })
+    if (updated.status === 'refunded' && updated.recurringTuition && updated.billingExpiresAt) {
+      await database.collection('studentEnrollments').updateOne(
+        {
+          studentUid: updated.studentUid,
+          listingId: updated.listingId,
+          billingExpiresAt: { $lte: updated.billingExpiresAt },
+        },
+        {
+          $set: {
+            billingExpiresAt: new Date(),
+            autoRenew: false,
+            renewalCancelledAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      )
+    }
+    await database.collection('bkashPayments').updateOne(
+      { paymentID: payment.paymentId },
+      {
+        $set: {
+          refundStatus: updated.status === 'refunded' ? 'refunded' : 'partially_refunded',
+          refundRecordedAt: new Date(),
+          updatedAt: new Date(),
+        },
+        $addToSet: { externalRefundReferences: externalReference },
+      },
+    )
+    await writeAuditLog({
+      actorUid: req.authUid,
+      actorRole: req.user.role,
+      action: 'course_payment_external_refund_recorded',
+      targetType: 'student_payment',
+      targetId: payment.paymentId,
+      meta: {
+        paymentMethod: 'bkash',
+        transactionId: payment.providerTransactionId,
+        refundAmount: body.amount,
+        cumulativeRefundAmount: nextRefund,
+        externalReference,
       },
     })
+    res.json({
+      paymentId: payment.paymentId,
+      refundedAmount: updated.refundedAmount,
+      platformCommissionReversed: updated.commissionReversedAmount,
+      teacherRevenueReversed: updated.teacherRevenueReversedAmount,
+      status: updated.status,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+platformRouter.patch('/admin/payments/payout-requests/:id/settlement', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const body = req.body || {}
+    const allowedFields = new Set(['status', 'externalReference', 'reviewNote'])
+    if (Object.keys(body).some((field) => !allowedFields.has(field)) ||
+        !['paid', 'rejected'].includes(body.status) ||
+        (body.externalReference !== undefined && (typeof body.externalReference !== 'string' || body.externalReference.trim().length > 120)) ||
+        (body.reviewNote !== undefined && (typeof body.reviewNote !== 'string' || body.reviewNote.trim().length > 500))) {
+      return res.status(400).json({ message: 'Provide a valid payout review status and optional settlement details.', code: 'INVALID_PAYOUT_REVIEW' })
+    }
+    const externalReference = body.externalReference?.trim() || ''
+    const reviewNote = body.reviewNote?.trim() || ''
+    if (body.status === 'paid' && !externalReference) {
+      return res.status(400).json({ message: 'An external settlement reference is required to record a payout as paid.', code: 'SETTLEMENT_REFERENCE_REQUIRED' })
+    }
+
+    const database = getDatabase()
+    const result = await settleTeacherWithdrawal(database, {
+      withdrawalId: req.params.id,
+      status: body.status,
+      externalReference,
+      reviewNote,
+      reviewedBy: req.authUid,
+    })
+
+    await writeAuditLog({
+      actorUid: req.authUid,
+      actorRole: req.user.role,
+      action: body.status === 'paid' ? 'admin.payout_externally_settled' : 'admin.payout_rejected',
+      targetType: 'payout_request',
+      targetId: req.params.id,
+      meta: {
+        amount: result.amount,
+        currency: result.currency || 'BDT',
+        status: result.status,
+        ...(externalReference ? { externalReference } : {}),
+        ...(reviewNote ? { reviewNote } : {}),
+      },
+    })
+    res.json({ payoutRequest: result, transferInitiated: false })
+  } catch (error) {
+    next(error)
+  }
+})
+
+platformRouter.post('/admin/settlements/:month/finalize', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const { month } = req.params
+    const database = getDatabase()
+    const result = await finalizeMonthlyAdminSettlement(database, month, req.authUid)
+    res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+platformRouter.post('/admin/settlements/run-jobs', verifyToken, requireRole('admin'), async (_req, res, next) => {
+  try {
+    const database = getDatabase()
+    const result = await runAllScheduledFinancialJobs(database)
+    res.json({ success: true, result })
   } catch (error) {
     next(error)
   }

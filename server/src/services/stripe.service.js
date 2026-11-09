@@ -1,159 +1,116 @@
-/**
- * Stripe Payment Service — swap-friendly architecture.
- *
- * STRIPE_MODE=demo   → returns mock data, no network calls to Stripe.
- * STRIPE_MODE=live   → uses real Stripe Checkout API (requires STRIPE_SECRET_KEY).
- *
- * Only this file needs to change when moving to real Stripe.
- * Route/controller layer is identical across all modes.
- */
+import Stripe from 'stripe'
 
-import { randomUUID } from 'node:crypto'
-import { getDatabase } from '../db.js'
+let stripeClient
+let stripeClientKey
 
-// ─── Demo config constants ────────────────────────────────────────────────────
-const DEMO_SUCCESS_URL_PATH = '/student/payment/success'
-const DEMO_CANCEL_URL_PATH = '/student/payment/cancel'
+function configurationError(message) {
+  const error = new Error(message)
+  error.status = 503
+  error.code = 'STRIPE_NOT_CONFIGURED'
+  return error
+}
 
-// ─── Stripe API config (live mode) ────────────────────────────────────────────
-function getStripe() {
+function expectedStripeKey(mode) {
+  if (!['test', 'live'].includes(mode)) {
+    throw configurationError('STRIPE_MODE must be set to test or live.')
+  }
   const secretKey = process.env.STRIPE_SECRET_KEY
-  if (!secretKey) return null
-  const stripe = require('stripe')(secretKey)
-  return stripe
+  const prefix = mode === 'test' ? 'sk_test_' : 'sk_live_'
+  if (!secretKey || !secretKey.startsWith(prefix)) {
+    throw configurationError(`Configure a ${mode}-mode Stripe secret key in STRIPE_SECRET_KEY.`)
+  }
+  return secretKey
 }
 
-function getStripeMode() {
-  return (process.env.STRIPE_MODE || 'demo').toLowerCase()
+function getStripe() {
+  const secretKey = expectedStripeKey(getStripeMode())
+  if (!stripeClient || stripeClientKey !== secretKey) {
+    stripeClient = new Stripe(secretKey)
+    stripeClientKey = secretKey
+  }
+  return stripeClient
 }
 
-// ─── DEMO SERVICE IMPLEMENTATION ─────────────────────────────────────────────
-
-function fakeSessionId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789'
-  let id = 'cs_'
-  for (let i = 0; i < 24; i++) id += chars[Math.floor(Math.random() * chars.length)]
-  return id
+export function getStripeMode() {
+  return (process.env.STRIPE_MODE || 'test').trim().toLowerCase()
 }
 
-async function demoCreateCheckoutSession({
-  amount, currency = 'bdt', listingId, studentUid, studentName, studentEmail,
-  successUrl, cancelUrl, metadata = {},
+export function assertStripeConfigured() {
+  expectedStripeKey(getStripeMode())
+}
+
+/**
+ * Create a one-time Stripe Checkout session (mode: 'payment').
+ * All monthly course payments — initial or renewal — go through individual
+ * one-time sessions. No automatic recurring subscriptions are created.
+ */
+export async function createStripeCheckoutSession({
+  amount,
+  orderId,
+  productName,
+  customerEmail,
+  clientOrigin,
+  successUrl,
+  cancelUrl,
+  metadata = {},
 }) {
-  const db = getDatabase()
-  const sessionId = fakeSessionId()
-  const now = new Date()
-  const doc = {
-    sessionId,
-    paymentIntentId: null,
-    status: 'complete',
-    mode: 'demo',
-    amount: Number(amount),
-    currency: currency.toUpperCase(),
-    listingId: listingId || null,
-    studentUid: studentUid || null,
-    studentName: studentName || null,
-    studentEmail: studentEmail || null,
-    successUrl,
-    cancelUrl,
-    metadata,
-    paymentStatus: 'paid',
-    createdAt: now,
-    updatedAt: now,
-  }
-  await db.collection('stripePayments').insertOne(doc)
-
-  // In demo mode, we simulate Stripe redirecting back to the success URL.
-  const demoSuccessUrl = successUrl || `${DEMO_SUCCESS_URL_PATH}?session_id=${sessionId}`
-  return {
-    id: sessionId,
-    url: demoSuccessUrl,
-    status: 'complete',
-    amount: doc.amount,
-    currency: doc.currency,
-    mode: 'demo',
-  }
-}
-
-async function demoRetrieveSession(sessionId) {
-  const db = getDatabase()
-  const payment = await db.collection('stripePayments').findOne({ sessionId })
-  if (!payment) return { found: false }
-  return {
-    found: true,
-    id: payment.sessionId,
-    status: payment.status,
-    payment_status: payment.paymentStatus,
-    amount: payment.amount,
-    currency: payment.currency,
-    mode: payment.mode,
-    metadata: payment.metadata,
-    listingId: payment.listingId,
-    studentUid: payment.studentUid,
-    customerDetails: payment.studentEmail ? { email: payment.studentEmail } : null,
-  }
-}
-
-// ─── PUBLIC API ──────────────────────────────────────────────────────────────
-
-const mode = getStripeMode()
-
-export async function createCheckoutSession(params) {
-  if (mode === 'demo') return demoCreateCheckoutSession(params)
   const stripe = getStripe()
-  if (!stripe) {
-    throw new Error('STRIPE_SECRET_KEY is not configured. Set STRIPE_MODE=demo or provide STRIPE_SECRET_KEY.')
+  const amountInMinorUnits = Math.round(Number(amount) * 100)
+  if (!Number.isSafeInteger(amountInMinorUnits) || amountInMinorUnits < 1) {
+    const error = new Error('Stripe checkout amount must be a positive monetary value.')
+    error.status = 400
+    error.code = 'INVALID_STRIPE_AMOUNT'
+    throw error
   }
+
+  const origin = clientOrigin || (process.env.CLIENT_URL || 'http://localhost:5173').split(',')[0].trim()
+  const sessionMetadata = { ...(orderId ? { orderId } : {}), ...metadata }
+
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
-    payment_method_types: ['card'],
-    currency: params.currency || 'bdt',
-    line_items: [
-      {
-        price_data: {
-          currency: params.currency || 'bdt',
-          product_data: {
-            name: params.productName || 'Course enrollment',
-            ...(params.description ? { description: params.description } : {}),
-          },
-          unit_amount: Math.round(Number(params.amount) * 100), // Stripe uses cents
-        },
-        quantity: 1,
+    line_items: [{
+      price_data: {
+        currency: 'bdt',
+        product_data: { name: productName || 'TeachOS course payment' },
+        unit_amount: amountInMinorUnits,
       },
-    ],
-    success_url: params.successUrl,
-    cancel_url: params.cancelUrl,
-    metadata: params.metadata || {},
-    customer_email: params.studentEmail || undefined,
+      quantity: 1,
+    }],
+    success_url: successUrl || `${origin}/student/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: cancelUrl || `${origin}/student/payment/cancel`,
+    ...(customerEmail ? { customer_email: customerEmail } : {}),
+    ...(orderId ? { client_reference_id: orderId } : {}),
+    metadata: sessionMetadata,
+    expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
   })
-  return {
-    id: session.id,
-    url: session.url,
-    status: session.status,
-    amount: params.amount,
-    currency: params.currency,
-    mode: 'live',
+  return session
+}
+
+export async function retrieveStripeCheckoutSession(sessionId) {
+  return getStripe().checkout.sessions.retrieve(sessionId)
+}
+
+export function constructStripeWebhookEvent(rawBody, signature) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  if (!webhookSecret) {
+    throw configurationError('Configure STRIPE_WEBHOOK_SECRET to verify Stripe webhook events.')
   }
+  return getStripe().webhooks.constructEvent(rawBody, signature, webhookSecret)
 }
 
 export async function retrieveSession(sessionId) {
-  if (mode === 'demo') return demoRetrieveSession(sessionId)
-  const stripe = getStripe()
-  if (!stripe) {
-    throw new Error('STRIPE_SECRET_KEY is not configured.')
-  }
-  const session = await stripe.checkout.sessions.retrieve(sessionId)
+  const session = await retrieveStripeCheckoutSession(sessionId)
   return {
     found: true,
     id: session.id,
     status: session.status,
     payment_status: session.payment_status,
     amount: session.amount_total ? session.amount_total / 100 : 0,
-    currency: session.currency,
-    mode: 'live',
+    currency: session.currency?.toUpperCase() || 'BDT',
+    mode: session.livemode ? 'live' : 'test',
     metadata: session.metadata || {},
+    listingId: session.metadata?.listingId || null,
+    studentUid: session.metadata?.studentUid || null,
     customerDetails: session.customer_details || null,
   }
 }
-
-export { getStripeMode, fakeSessionId }

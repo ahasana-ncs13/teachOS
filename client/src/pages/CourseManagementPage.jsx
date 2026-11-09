@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FiArrowRight, FiBookOpen, FiCalendar, FiCheck, FiCheckCircle, FiChevronRight, FiClock, FiCopy, FiDownload, FiEdit2, FiEye, FiFileText, FiGlobe, FiGrid, FiHelpCircle, FiLink, FiLogOut, FiMenu, FiMinus, FiMoreHorizontal, FiPlay, FiPlus, FiRefreshCw, FiSearch, FiSettings, FiShare2, FiTrash2, FiUsers, FiVideo, FiX } from 'react-icons/fi'
-import { Link, useParams } from 'react-router-dom'
+import { FiAlertTriangle, FiArrowRight, FiBookOpen, FiCalendar, FiCheck, FiCheckCircle, FiChevronRight, FiClock, FiCopy, FiDownload, FiEdit2, FiEye, FiFileText, FiGlobe, FiGrid, FiHelpCircle, FiLink, FiLogOut, FiMenu, FiMinus, FiMoreHorizontal, FiPlay, FiPlus, FiRefreshCw, FiSearch, FiSettings, FiShare2, FiTrash2, FiUsers, FiVideo, FiX } from 'react-icons/fi'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
+import { uploadCourseVideo } from '../lib/courseVideos'
 import '../styles/course-management.css'
 
 const money = (amount) => `৳${Number(amount || 0).toLocaleString('en-BD', { maximumFractionDigits: 2 })}`
@@ -15,8 +16,32 @@ const dateLabel = (value) => {
 const dateTimeLabel = (value) => {
   if (!value) return '—'
   const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('en-BD', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('en-BD', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Dhaka' })
 }
+const dhakaDateInput = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date())
+const dhakaDateTimeInput = (value) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(value))
+  const part = (type) => parts.find((item) => item.type === type)?.value
+  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`
+}
+const dhakaDateTimeIso = (value) => value ? new Date(`${value}:00+06:00`).toISOString() : undefined
+const WEEKDAYS = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+]
 
 function messageFrom(error, fallback) {
   return error.response?.data?.message || fallback
@@ -24,6 +49,25 @@ function messageFrom(error, fallback) {
 
 function confirmAction(message) {
   return window.confirm(message)
+}
+
+function lessonEmbedUrl(value) {
+  if (!value) return ''
+  try {
+    const url = new URL(value)
+    const host = url.hostname.replace(/^www\./, '')
+    if (host === 'youtu.be' || host === 'youtube.com' || host === 'm.youtube.com') {
+      const videoId = host === 'youtu.be' ? url.pathname.slice(1) : url.searchParams.get('v') || url.pathname.split('/').filter(Boolean).pop()
+      return videoId ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}` : ''
+    }
+    if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+      const videoId = url.pathname.split('/').filter(Boolean).pop()
+      return /^\d+$/.test(videoId || '') ? `https://player.vimeo.com/video/${videoId}` : ''
+    }
+  } catch {
+    return ''
+  }
+  return ''
 }
 
 /* ── Sub-components ── */
@@ -45,9 +89,9 @@ function Badge({ children, variant = 'default' }) {
   return <span className={`cm-badge cm-badge-${variant}`}>{children}</span>
 }
 
-function Button({ children, onClick, variant = 'primary', disabled, className, type = 'button', icon }) {
+function Button({ children, onClick, variant = 'primary', disabled, className, size, type = 'button', icon }) {
   return (
-    <button type={type} className={`cm-btn cm-btn-${variant} ${className || ''}`} onClick={onClick} disabled={disabled}>
+    <button type={type} className={`cm-btn cm-btn-${variant} ${size === 'small' ? 'cm-btn-small' : ''} ${className || ''}`} onClick={onClick} disabled={disabled}>
       {icon && <span className="cm-btn-icon">{icon}</span>}
       {children}
     </button>
@@ -87,7 +131,9 @@ function Toast({ message, tone, onDismiss }) {
 export default function CourseManagementPage() {
   const { user, signOut } = useAuth()
   const { listingId } = useParams()
-  const uid = user?.uid || `demo-${user?.email || 'teacher'}`
+  const [searchParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [course, setCourse] = useState(null)
   const [courseLoading, setCourseLoading] = useState(true)
@@ -103,22 +149,35 @@ export default function CourseManagementPage() {
   const [, setLiveSessionsLoading] = useState(false)
   const [, setAttendanceLoading] = useState(false)
 
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(() => {
+    const requestedTab = searchParams.get('tab')
+    return ['overview', 'live', 'attendance', 'modules', 'library'].includes(requestedTab) ? requestedTab : 'overview'
+  })
+
   const [toast, setToast] = useState('')
   const [toastTone, setToastTone] = useState('success')
 
   const [meetStatus, setMeetStatus] = useState(null)
   const [meetLoading, setMeetLoading] = useState(false)
+  const [meetConnecting, setMeetConnecting] = useState(false)
+  const [meetDisconnecting, setMeetDisconnecting] = useState(false)
 
   const [lessonFormOpen, setLessonFormOpen] = useState(false)
   const [editingLesson, setEditingLesson] = useState(null)
   const [lessonForm, setLessonForm] = useState({
-    moduleId: '', title: '', description: '', source: 'direct', videoUrl: '', fileId: '',
+    moduleId: '', title: '', description: '', source: 'direct', videoUrl: '', fileId: '', videoFile: null,
     thumbnailUrl: '', duration: '', lessonNumber: '', isFreePreview: false, isLockedAfterCompletion: false,
     lectureNotesUrl: '', published: false,
   })
   const [lessonFormErrors, setLessonFormErrors] = useState({})
   const [lessonSaving, setLessonSaving] = useState(false)
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0)
+  const [previewLesson, setPreviewLesson] = useState(null)
+  const [previewVideoUrl, setPreviewVideoUrl] = useState('')
+  const [previewVideoError, setPreviewVideoError] = useState(null)
+  const [collapsedModules, setCollapsedModules] = useState({})
+  const [courseSearch, setCourseSearch] = useState('')
+  const [publishingLessonId, setPublishingLessonId] = useState('')
 
   const [moduleFormOpen, setModuleFormOpen] = useState(false)
   const [editingModule, setEditingModule] = useState(null)
@@ -132,8 +191,12 @@ export default function CourseManagementPage() {
   const [liveSessionFormOpen, setLiveSessionFormOpen] = useState(false)
   const [editingLiveSession, setEditingLiveSession] = useState(null)
   const [liveSessionForm, setLiveSessionForm] = useState({
-    title: '', meetLink: '', meetId: '', status: 'scheduled', scheduledAt: '', targetBatch: '',
+    title: '', curriculumLessonId: '', meetLink: '', meetId: '', status: 'scheduled', scheduledAt: '', targetBatch: '',
     autoAttendance: false, autoRecording: false, notifyStudents: false, rtmpRelay: false,
+  })
+  const [scheduleFromCurriculum, setScheduleFromCurriculum] = useState(false)
+  const [curriculumSchedule, setCurriculumSchedule] = useState({
+    startDate: dhakaDateInput(), startTime: '10:00', daysOfWeek: [6],
   })
   const [liveSessionFormErrors, setLiveSessionFormErrors] = useState({})
   const [liveSessionSaving, setLiveSessionSaving] = useState(false)
@@ -142,11 +205,40 @@ export default function CourseManagementPage() {
   const [attendanceDraft, setAttendanceDraft] = useState([])
   const [attendanceSaving, setAttendanceSaving] = useState(false)
 
-  const notify = (message, tone = 'success') => {
+  useEffect(() => {
+    if (!previewLesson?.fileId) return undefined
+    let current = true
+    let objectUrl = ''
+    api.get(
+      `/course-management/${encodeURIComponent(listingId)}/videos/${encodeURIComponent(previewLesson.fileId)}`,
+      { responseType: 'blob' },
+    ).then(({ data }) => {
+      if (!current) return
+      objectUrl = URL.createObjectURL(data)
+      setPreviewVideoUrl(objectUrl)
+    }).catch((error) => {
+      if (current) setPreviewVideoError({
+        lessonId: String(previewLesson._id),
+        message: messageFrom(error, 'Could not load this video preview.'),
+      })
+    })
+    return () => {
+      current = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [listingId, previewLesson])
+
+  const openLessonPreview = (lesson) => {
+    setPreviewVideoUrl('')
+    setPreviewVideoError(null)
+    setPreviewLesson(lesson)
+  }
+
+  const notify = useCallback((message, tone = 'success') => {
     setToastTone(tone)
     setToast(message)
     setTimeout(() => setToast(''), 3500)
-  }
+  }, [])
 
   const refresh = useCallback(async () => {
     setCourseLoading(true)
@@ -187,9 +279,77 @@ export default function CourseManagementPage() {
     setMeetLoading(true)
     api.get('/course-management/google-meet/status')
       .then(({ data }) => setMeetStatus(data))
-      .catch(() => setMeetStatus({ connected: false, configured: false, message: 'Unable to check Google Meet status.' }))
+      .catch((error) => setMeetStatus({
+        connected: false,
+        configured: false,
+        message: messageFrom(error, 'Could not check Google Meet connection.'),
+      }))
       .finally(() => setMeetLoading(false))
   }, [listingId])
+
+  useEffect(() => {
+    const result = new URLSearchParams(location.search).get('googleMeet')
+    if (!result) return
+    if (result === 'connected') {
+      notify('Google Calendar connected. New sessions can create Meet links automatically.')
+      api.get('/course-management/google-meet/status')
+        .then(({ data }) => setMeetStatus(data))
+        .catch((error) => setCourseError(messageFrom(error, 'Could not refresh Google Calendar connection status.')))
+    } else if (result === 'cancelled') {
+      notify('Google account connection was cancelled.', 'error')
+    } else {
+      notify('Google connection failed. Check OAuth settings and the authorized redirect URI.', 'error')
+    }
+    const next = new URLSearchParams(location.search)
+    next.delete('googleMeet')
+    navigate({ pathname: location.pathname, search: next.toString() ? `?${next}` : '' }, { replace: true })
+  }, [location, navigate, notify])
+
+  const connectGoogleMeet = async () => {
+    setMeetConnecting(true)
+    setCourseError('')
+    try {
+      const { data } = await api.get('/course-management/google-meet/connect', { params: { listingId } })
+      window.location.assign(data.authorizationUrl)
+    } catch (error) {
+      setCourseError(messageFrom(error, 'Could not start Google account connection.'))
+      setMeetConnecting(false)
+    }
+  }
+
+  const disconnectGoogleMeet = async () => {
+    setMeetDisconnecting(true)
+    setCourseError('')
+    try {
+      await api.delete('/course-management/google-meet/connection')
+      setMeetStatus((current) => ({ ...current, connected: false }))
+      notify('Google Calendar disconnected.')
+    } catch (error) {
+      setCourseError(messageFrom(error, 'Could not disconnect Google Calendar.'))
+    } finally {
+      setMeetDisconnecting(false)
+    }
+  }
+
+  const copyMeetLink = async (meetLink) => {
+    try {
+      await navigator.clipboard.writeText(meetLink)
+      notify('Meet link copied.')
+    } catch {
+      notify('Could not copy the Meet link. Open the link and copy it from your browser.', 'error')
+    }
+  }
+
+  const openSessionComposer = () => {
+    setEditingLiveSession(null)
+    setScheduleFromCurriculum(false)
+    setLiveSessionForm({
+      title: '', curriculumLessonId: '', meetLink: '', meetId: '', status: 'scheduled', scheduledAt: '',
+      targetBatch: '', autoAttendance: false, autoRecording: false, notifyStudents: false, rtmpRelay: false,
+      createMeet: Boolean(meetStatus?.connected),
+    })
+    setLiveSessionFormOpen(true)
+  }
 
   const loadAttendance = useCallback(async (sessionId) => {
     setAttendanceSessionId(sessionId)
@@ -252,12 +412,18 @@ export default function CourseManagementPage() {
     setLessonFormErrors({})
     setLessonSaving(true)
     try {
+      const uploadedVideo = lessonForm.videoFile
+        ? await uploadCourseVideo(listingId, lessonForm.videoFile, (event) => {
+          if (event.total) setVideoUploadProgress(Math.round((event.loaded / event.total) * 100))
+        })
+        : null
       const body = {
         moduleId: lessonForm.moduleId || undefined,
         title: lessonForm.title,
         description: lessonForm.description,
         source: lessonForm.source,
         videoUrl: lessonForm.videoUrl || undefined,
+        fileId: uploadedVideo?.fileId || lessonForm.fileId,
         thumbnailUrl: lessonForm.thumbnailUrl || undefined,
         duration: lessonForm.duration || undefined,
         lessonNumber: lessonForm.lessonNumber ? Number(lessonForm.lessonNumber) : undefined,
@@ -266,17 +432,29 @@ export default function CourseManagementPage() {
         lectureNotesUrl: lessonForm.lectureNotesUrl || undefined,
         published: lessonForm.published,
       }
+      let notificationsSent = null
       if (editingLesson) {
-        await api.put(`/course-management/${encodeURIComponent(listingId)}/lessons/${encodeURIComponent(editingLesson._id)}`, body)
-        notify('Lesson updated.')
+        const { data } = await api.put(`/course-management/${encodeURIComponent(listingId)}/lessons/${encodeURIComponent(editingLesson._id)}`, body)
+        notificationsSent = data.lesson?.notificationsSent
+        notify(body.published && !editingLesson.published
+          ? notificationsSent ? 'Lesson published and enrolled students notified.' : 'Lesson published, but student notifications could not be sent.'
+          : 'Lesson updated.')
       } else {
-        await api.post(`/course-management/${encodeURIComponent(listingId)}/modules/${encodeURIComponent(lessonForm.moduleId)}/lessons`, body)
-        notify('Lesson added to module.')
+        const endpoint = lessonForm.moduleId
+          ? `/course-management/${encodeURIComponent(listingId)}/modules/${encodeURIComponent(lessonForm.moduleId)}/lessons`
+          : `/course-management/${encodeURIComponent(listingId)}/lessons`
+        const { data } = await api.post(endpoint, body)
+        notificationsSent = data.lesson?.notificationsSent
+        notify(body.published
+          ? notificationsSent ? 'Lesson published and enrolled students notified.' : 'Lesson published, but student notifications could not be sent.'
+          : lessonForm.moduleId ? 'Lesson added to module.' : 'Recorded lesson submitted.')
       }
+      const { data } = await api.get(`/course-management/${encodeURIComponent(listingId)}/lessons`)
+      setLessons(data.lessons || [])
       setLessonFormOpen(false)
       setEditingLesson(null)
       setLessonForm({
-        moduleId: '', title: '', description: '', source: 'direct', videoUrl: '', fileId: '',
+        moduleId: '', title: '', description: '', source: 'direct', videoUrl: '', fileId: '', videoFile: null,
         thumbnailUrl: '', duration: '', lessonNumber: '', isFreePreview: false, isLockedAfterCompletion: false,
         lectureNotesUrl: '', published: false,
       })
@@ -284,6 +462,41 @@ export default function CourseManagementPage() {
       setLessonFormErrors({ _form: messageFrom(err, 'Could not save lesson.') })
     } finally {
       setLessonSaving(false)
+      setVideoUploadProgress(0)
+    }
+  }
+
+  const publishLesson = async (lesson) => {
+    if (lesson.published || publishingLessonId) return
+    setPublishingLessonId(String(lesson._id))
+    try {
+      const { data } = await api.put(
+        `/course-management/${encodeURIComponent(listingId)}/lessons/${encodeURIComponent(lesson._id)}`,
+        {
+          moduleId: lesson.moduleId ? String(lesson.moduleId) : undefined,
+          title: lesson.title,
+          description: lesson.description || '',
+          source: lesson.source || 'direct',
+          videoUrl: lesson.videoUrl || undefined,
+          fileId: lesson.fileId || undefined,
+          thumbnailUrl: lesson.thumbnailUrl || undefined,
+          duration: lesson.duration || undefined,
+          lessonNumber: Number.isFinite(Number(lesson.lessonNumber)) ? Number(lesson.lessonNumber) : undefined,
+          isFreePreview: Boolean(lesson.isFreePreview),
+          isLockedAfterCompletion: Boolean(lesson.isLockedAfterCompletion),
+          lectureNotesUrl: lesson.lectureNotesUrl || undefined,
+          published: true,
+        },
+      )
+      const { data: lessonsData } = await api.get(`/course-management/${encodeURIComponent(listingId)}/lessons`)
+      setLessons(lessonsData.lessons || [])
+      notify(data.lesson?.notificationsSent
+        ? 'Lesson published and enrolled students notified.'
+        : 'Lesson published, but student notifications could not be sent.')
+    } catch (error) {
+      notify(messageFrom(error, 'Could not publish lesson.'), 'error')
+    } finally {
+      setPublishingLessonId('')
     }
   }
 
@@ -311,30 +524,64 @@ export default function CourseManagementPage() {
   const saveLiveSession = async (event) => {
     event.preventDefault()
     setLiveSessionFormErrors({})
+    if (liveSessionForm.createMeet && !liveSessionForm.scheduledAt) {
+      setLiveSessionFormErrors({ _form: 'Choose a scheduled date and time before creating a Google Meet.' })
+      return
+    }
+
+    let scheduledAt
+    try {
+      scheduledAt = dhakaDateTimeIso(liveSessionForm.scheduledAt)
+    } catch {
+      setLiveSessionFormErrors({ _form: 'Choose a valid scheduled date and time.' })
+      return
+    }
+
     setLiveSessionSaving(true)
     try {
+      if (scheduleFromCurriculum && !editingLiveSession) {
+        const { data } = await api.post(`/course-management/${encodeURIComponent(listingId)}/live-sessions/curriculum`, {
+          ...curriculumSchedule,
+          meetLink: liveSessionForm.meetLink || undefined,
+          targetBatch: liveSessionForm.targetBatch || undefined,
+          autoAttendance: liveSessionForm.autoAttendance,
+          autoRecording: liveSessionForm.autoRecording,
+          notifyStudents: liveSessionForm.notifyStudents,
+        })
+        setLiveSessions((current) => [...current, ...data.sessions])
+        notify(`${data.count} weekly classes scheduled in curriculum order.`)
+        setLiveSessionFormOpen(false)
+        setEditingLiveSession(null)
+        setScheduleFromCurriculum(false)
+        return
+      }
       const body = {
         title: liveSessionForm.title,
+        curriculumLessonId: liveSessionForm.curriculumLessonId || undefined,
         meetLink: liveSessionForm.meetLink || undefined,
         meetId: liveSessionForm.meetId || undefined,
         status: liveSessionForm.status,
-        scheduledAt: liveSessionForm.scheduledAt || undefined,
+        scheduledAt,
         targetBatch: liveSessionForm.targetBatch || undefined,
         autoAttendance: liveSessionForm.autoAttendance,
         autoRecording: liveSessionForm.autoRecording,
         notifyStudents: liveSessionForm.notifyStudents,
         rtmpRelay: liveSessionForm.rtmpRelay,
+        createMeet: !editingLiveSession && liveSessionForm.createMeet,
       }
       if (editingLiveSession) {
-        await api.put(`/course-management/${encodeURIComponent(listingId)}/live-sessions/${encodeURIComponent(editingLiveSession._id)}`, body)
+        const { data } = await api.put(`/course-management/${encodeURIComponent(listingId)}/live-sessions/${encodeURIComponent(editingLiveSession._id)}`, body)
+        setLiveSessions((current) => current.map((session) => session._id === editingLiveSession._id ? data.session : session))
         notify('Live session updated.')
       } else {
-        await api.post(`/course-management/${encodeURIComponent(listingId)}/live-sessions`, body)
+        const { data } = await api.post(`/course-management/${encodeURIComponent(listingId)}/live-sessions`, body)
+        setLiveSessions((current) => [...current, data.session])
         notify('Live session scheduled.')
       }
       setLiveSessionFormOpen(false)
       setEditingLiveSession(null)
-      setLiveSessionForm({ title: '', meetLink: '', meetId: '', status: 'scheduled', scheduledAt: '', targetBatch: '', autoAttendance: false, autoRecording: false, notifyStudents: false, rtmpRelay: false })
+      setScheduleFromCurriculum(false)
+      setLiveSessionForm({ title: '', curriculumLessonId: '', meetLink: '', meetId: '', status: 'scheduled', scheduledAt: '', targetBatch: '', autoAttendance: false, autoRecording: false, notifyStudents: false, rtmpRelay: false, createMeet: false })
     } catch (err) {
       setLiveSessionFormErrors({ _form: messageFrom(err, 'Could not save live session.') })
     } finally {
@@ -346,6 +593,7 @@ export default function CourseManagementPage() {
     if (!confirmAction(`Cancel live session "${session.title}"?`)) return
     try {
       await api.delete(`/course-management/${encodeURIComponent(listingId)}/live-sessions/${encodeURIComponent(session._id)}`)
+      setLiveSessions((current) => current.filter((item) => item._id !== session._id))
       notify('Live session cancelled.')
     } catch (err) {
       setCourseError(messageFrom(err, 'Could not cancel live session.'))
@@ -410,7 +658,7 @@ export default function CourseManagementPage() {
     const enrolled = course?.enrolledCount || 0
     const activeModules = modules.filter((m) => m.status === 'active').length
     const publishedLessons = lessons.filter((l) => l.published && l.status !== 'removed').length
-    const totalDuration = lessons.reduce((sum, l) => {
+    const totalDuration = lessons.filter((lesson) => lesson.status !== 'removed').reduce((sum, l) => {
       const match = (l.duration || '').match(/(\d+)\s*(?:min|mins|minute|minutes)/i)
       return sum + (match ? Number(match[1]) : 0)
     }, 0)
@@ -477,10 +725,10 @@ export default function CourseManagementPage() {
       <div className="cm-section-header">
         <h2>Live Class Sessions <span className="cm-section-sub">Google Meet</span></h2>
         <div className="cm-section-actions">
-          <Button variant="secondary" onClick={() => setLiveSessionFormOpen(true)} disabled={!meetStatus?.configured} icon={<FiPlus />}>
+          <Button variant="secondary" onClick={openSessionComposer} icon={<FiPlus />}>
             Schedule Upcoming Class
           </Button>
-          <Button onClick={() => setLiveSessionFormOpen(true)} icon={<FiVideo />}>
+          <Button onClick={openSessionComposer} icon={<FiVideo />}>
             Start Instant Live Class
           </Button>
         </div>
@@ -489,20 +737,24 @@ export default function CourseManagementPage() {
       <div className="cm-meet-status">
         <div className="cm-meet-indicator">
           <span className={`cm-meet-dot ${meetStatus?.connected ? 'cm-meet-connected' : 'cm-meet-disconnected'}`}></span>
-          <span className="cm-meet-text">{meetStatus?.connected ? 'Google Meet connected' : meetStatus?.configured ? 'Google Meet configured — connect your account' : 'Google Meet not configured'}</span>
+          <span className="cm-meet-text">{meetLoading ? 'Checking Google Calendar…' : meetStatus?.connected ? 'Google Calendar connected' : meetStatus?.configured ? 'Google account not connected' : 'Google Meet setup required'}</span>
         </div>
-        <span className="cm-meet-detail">{meetStatus?.message}</span>
-        {!meetStatus?.configured && (
-          <p className="cm-meet-hint">Set GOOGLE_MEET_CLIENT_ID and GOOGLE_MEET_CLIENT_SECRET in server/.env to enable Google Meet integration.</p>
-        )}
+        <span className="cm-meet-detail">{meetStatus?.connected ? 'New live sessions can create a Google Calendar event with a real Meet link.' : meetStatus?.message}</span>
+        <div className="cm-meet-actions">
+          {meetStatus?.connected
+            ? <Button variant="secondary" onClick={disconnectGoogleMeet} disabled={meetDisconnecting}>{meetDisconnecting ? 'Disconnecting…' : 'Disconnect Google'}</Button>
+            : <Button onClick={connectGoogleMeet} disabled={!meetStatus?.configured || meetLoading || meetConnecting}>{meetConnecting ? 'Connecting…' : 'Connect Google Calendar'}</Button>}
+        </div>
+        {!meetStatus?.configured && <p className="cm-meet-hint">Set the Google OAuth client ID and secret plus the server-side token encryption key. Authorized redirect URI: {meetStatus?.redirectUri}</p>}
       </div>
 
       <div className="cm-session-launcher">
         <h3>Session Launcher</h3>
-        <div className="cm-launcher-grid">
+        {liveSessionFormErrors._form && <p className="cm-modal-error">{liveSessionFormErrors._form}</p>}
+      <div className="cm-launcher-grid">
           <Input label="Session Topic" value={liveSessionForm.title} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, title: e.target.value })} placeholder="e.g., Faraday's Law Masterclass" error={liveSessionFormErrors.title} />
           <Input label="Target Batch" value={liveSessionForm.targetBatch} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, targetBatch: e.target.value })} placeholder="e.g., Morning Batch A &amp; B" />
-          <Input label="Scheduled At" type="datetime-local" value={liveSessionForm.scheduledAt} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, scheduledAt: e.target.value })} />
+          <Input label="Scheduled At" type="datetime-local" value={liveSessionForm.scheduledAt} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, scheduledAt: e.target.value })} required={Boolean(liveSessionForm.createMeet)} />
           <div className="cm-launcher-actions">
             <Button variant="secondary" onClick={() => setLiveSessionFormOpen(false)}>Cancel</Button>
             <Button onClick={saveLiveSession} disabled={liveSessionSaving} icon={<FiPlay />}>
@@ -542,7 +794,7 @@ export default function CourseManagementPage() {
       <div className="cm-upcoming-schedule">
         <div className="cm-schedule-header">
           <h3>Upcoming Live Schedule</h3>
-          <Button variant="secondary" onClick={() => setLiveSessionFormOpen(true)} icon={<FiPlus />}>Add Slot</Button>
+          <Button variant="secondary" onClick={openSessionComposer} icon={<FiPlus />}>Add Slot</Button>
         </div>
         <div className="cm-session-list">
           {liveSessions.length ? liveSessions.map((session) => (
@@ -561,14 +813,19 @@ export default function CourseManagementPage() {
                 <Badge variant={session.status === 'live' ? 'error' : session.status === 'completed' ? 'default' : 'info'}>{session.status}</Badge>
               </div>
               <div className="cm-session-actions">
+                {session.meetLink && <>
+                  <a className="cm-btn cm-btn-secondary" href={session.meetLink} target="_blank" rel="noreferrer"><FiVideo /> Join Meet</a>
+                  <Button variant="secondary" size="small" onClick={() => copyMeetLink(session.meetLink)} icon={<FiCopy />}>Copy link</Button>
+                </>}
                 <Button variant="secondary" size="small" onClick={() => {
                   setEditingLiveSession(session)
                   setLiveSessionForm({
-                    title: session.title, meetLink: session.meetLink || '', meetId: session.meetId || '',
-                    status: session.status, scheduledAt: session.scheduledAt ? new Date(session.scheduledAt).toISOString().slice(0, 16) : '',
+                    title: session.title, curriculumLessonId: session.curriculumLessonId || '', meetLink: session.meetLink || '', meetId: session.meetId || '',
+                    status: session.status, scheduledAt: session.scheduledAt ? dhakaDateTimeInput(session.scheduledAt) : '',
                     targetBatch: session.targetBatch || '', autoAttendance: session.autoAttendance, autoRecording: session.autoRecording,
                     notifyStudents: session.notifyStudents, rtmpRelay: session.rtmpRelay,
                   })
+                  setScheduleFromCurriculum(false)
                   setLiveSessionFormOpen(true)
                 }} icon={<FiEdit2 />}>Edit</Button>
                 <Button variant="secondary" size="small" onClick={() => {
@@ -667,80 +924,149 @@ export default function CourseManagementPage() {
     </section>
   )
 
+  const openLessonEditor = (lesson) => {
+    setEditingLesson(lesson)
+    setLessonForm({
+      moduleId: String(lesson.moduleId || ''), title: lesson.title, description: lesson.description || '',
+      source: lesson.source, videoUrl: lesson.videoUrl || '', fileId: lesson.fileId || '', videoFile: null, thumbnailUrl: lesson.thumbnailUrl || '',
+      duration: lesson.duration || '', lessonNumber: lesson.lessonNumber?.toString() || '',
+      isFreePreview: lesson.isFreePreview, isLockedAfterCompletion: lesson.isLockedAfterCompletion,
+      lectureNotesUrl: lesson.lectureNotesUrl || '', published: lesson.published,
+    })
+    setLessonFormOpen(true)
+  }
+
   const renderModulesLessons = () => (
     <section className="cm-section cm-modules-lessons">
-      <div className="cm-section-header">
-        <h2>Course Modules &amp; Recorded Videos</h2>
+      <div className="cm-curriculum-heading">
+        <div>
+          <p className="cm-curriculum-eyebrow">Course curriculum</p>
+          <h2>Modules &amp; recorded classes</h2>
+          <p>Organize your curriculum and preview the lessons students can access.</p>
+        </div>
         <div className="cm-section-actions">
           <Button variant="secondary" onClick={() => setModuleFormOpen(true)} icon={<FiPlus />}>Add Module</Button>
-          <Button onClick={() => setLessonFormOpen(true)} icon={<FiVideo />}>Add Video Lesson</Button>
+          <Button onClick={() => { setEditingLesson(null); setLessonForm({ moduleId: '', title: '', description: '', source: 'direct', videoUrl: '', fileId: '', videoFile: null, thumbnailUrl: '', duration: '', lessonNumber: '', isFreePreview: false, isLockedAfterCompletion: false, lectureNotesUrl: '', published: false }); setLessonFormErrors({}); setLessonFormOpen(true) }} icon={<FiVideo />}>Add Video Lesson</Button>
         </div>
       </div>
 
-      <div className="cm-modules-grid">
-        {modules.length ? modules.map((module) => {
-          const moduleLessons = lessons.filter((l) => String(l.moduleId) === String(module._id) && l.status !== 'removed')
-          const publishedCount = moduleLessons.filter((l) => l.published).length
-          return (
-            <article key={module._id} className="cm-module-card">
-              <header className="cm-module-header">
-                <div className="cm-module-title">
-                  <h3>{module.name}</h3>
-                  <Badge variant={module.status === 'active' ? 'success' : 'default'}>{module.status}</Badge>
+      <div className="cm-curriculum-stats">
+        <StatCard icon={FiGrid} title="Curriculum Modules" value={stats.activeModules} sub={`${modules.length} total`} />
+        <StatCard icon={FiPlay} title="Video Lessons" value={lessons.filter((lesson) => lesson.status !== 'removed').length} sub={`${stats.publishedLessons} published`} />
+        <StatCard icon={FiClock} title="Total Duration" value={`${Math.floor(stats.totalDuration / 60)}h ${stats.totalDuration % 60}m`} sub="Based on lesson durations" />
+        <StatCard icon={FiCheckCircle} title="Course Status" value={course?.status || 'draft'} sub="Visibility to learners" />
+      </div>
+
+      <label className="cm-curriculum-search"><FiSearch /><input value={courseSearch} onChange={(event) => setCourseSearch(event.target.value)} placeholder="Search lessons and topics..." aria-label="Search lessons and topics" /></label>
+
+      <div className="cm-curriculum-layout">
+        <div className="cm-curriculum-list">
+          {lessons.some((lesson) => !lesson.moduleId && lesson.status !== 'removed') && <section className="cm-unassigned-lessons">
+            <h3>Course-level recorded classes</h3>
+            <p>These lessons are saved to the course library without a module.</p>
+            {lessons.filter((lesson) => !lesson.moduleId && lesson.status !== 'removed' && `${lesson.title} ${lesson.description || ''}`.toLowerCase().includes(courseSearch.trim().toLowerCase())).map((lesson) => (
+              <article key={lesson._id} className={`cm-lesson-row${String(previewLesson?._id) === String(lesson._id) ? ' cm-lesson-row-selected' : ''}`}>
+                <div className="cm-lesson-info">
+                  <span className="cm-lesson-number">Lesson {lesson.lessonNumber}</span>
+                  <h4>{lesson.title}</h4>
+                  <span className={`cm-lesson-badge ${lesson.published ? 'cm-lesson-published' : 'cm-lesson-draft'}`}>{lesson.published ? 'Published' : 'Draft'}</span>
+                  <span className="cm-lesson-source">{lesson.source}</span>
+                  <span className="cm-lesson-duration">{lesson.duration || '—'}</span>
                 </div>
-                <div className="cm-module-actions">
-                  <Button variant="secondary" size="small" onClick={() => {
-                    setEditingModule(module)
-                    setModuleForm({ name: module.name, description: module.description || '', status: module.status, order: module.order?.toString() || '' })
-                    setModuleFormOpen(true)
-                  }} icon={<FiEdit2 />}>Edit</Button>
-                  <Button variant="secondary" size="small" className="cm-delete" onClick={() => deleteModule(module)} icon={<FiTrash2 />}>Delete</Button>
+                <div className="cm-lesson-actions">
+                  {(lesson.videoUrl || lesson.fileId) && <Button variant="secondary" size="small" onClick={() => openLessonPreview(lesson)} icon={<FiPlay />}>Preview</Button>}
+                  {!lesson.published && <Button className="cm-btn-publish" size="small" disabled={Boolean(publishingLessonId) || (!lesson.videoUrl && !lesson.fileId)} onClick={() => publishLesson(lesson)} icon={<FiShare2 />}>{publishingLessonId === String(lesson._id) ? 'Publishing…' : 'Publish'}</Button>}
+                  <Button variant="secondary" size="small" onClick={() => openLessonEditor(lesson)} icon={<FiEdit2 />}>Edit</Button>
+                  <Button variant="secondary" size="small" className="cm-delete" onClick={() => deleteLesson(lesson)} icon={<FiTrash2 />}>Delete</Button>
                 </div>
-              </header>
-              <div className="cm-module-body">
-                <p className="cm-module-desc">{module.description || 'No description'}</p>
-                <div className="cm-module-progress">
-                  <span>{publishedCount} of {moduleLessons.length} lessons published</span>
-                  <div className="cm-progress-bar"><div className="cm-progress-fill" style={{ width: moduleLessons.length ? Math.round((publishedCount / moduleLessons.length) * 100) : 0 }} /></div>
-                </div>
-                <div className="cm-module-lessons">
-                  {moduleLessons.length ? moduleLessons.map((lesson) => (
-                    <article key={lesson._id} className="cm-lesson-row">
-                      <div className="cm-lesson-info">
-                        <span className="cm-lesson-number">Lesson {lesson.lessonNumber}</span>
-                        <h4>{lesson.title}</h4>
-                        <span className={`cm-lesson-badge ${lesson.published ? 'cm-lesson-published' : 'cm-lesson-draft'}`}>{lesson.published ? 'Published' : 'Draft'}</span>
-                        <span className="cm-lesson-source">{lesson.source}</span>
-                        <span className="cm-lesson-duration">{lesson.duration || '—'}</span>
-                      </div>
-                      <div className="cm-lesson-actions">
-                        <Button variant="secondary" size="small" onClick={() => {
-                          setEditingLesson(lesson)
-                          setLessonForm({
-                            moduleId: String(lesson.moduleId || ''), title: lesson.title, description: lesson.description || '',
-                            source: lesson.source, videoUrl: lesson.videoUrl || '', thumbnailUrl: lesson.thumbnailUrl || '',
-                            duration: lesson.duration || '', lessonNumber: lesson.lessonNumber?.toString() || '',
-                            isFreePreview: lesson.isFreePreview, isLockedAfterCompletion: lesson.isLockedAfterCompletion,
-                            lectureNotesUrl: lesson.lectureNotesUrl || '', published: lesson.published,
-                          })
-                          setLessonFormOpen(true)
-                        }} icon={<FiEdit2 />}>Edit</Button>
-                        <Button variant="secondary" size="small" className="cm-delete" onClick={() => deleteLesson(lesson)} icon={<FiTrash2 />}>Delete</Button>
-                      </div>
-                    </article>
-                  )) : <p className="cm-empty">No lessons in this module yet.</p>}
-                </div>
-              </div>
-            </article>
-          )
-        }) : (
+              </article>
+            ))}
+          </section>}
+          {modules.length ? modules.map((module, index) => {
+            const moduleLessons = lessons.filter((lesson) => String(lesson.moduleId) === String(module._id) && lesson.status !== 'removed')
+            const visibleLessons = moduleLessons.filter((lesson) => `${lesson.title} ${lesson.description || ''}`.toLowerCase().includes(courseSearch.trim().toLowerCase()))
+            const publishedCount = moduleLessons.filter((lesson) => lesson.published).length
+            const collapsed = Boolean(collapsedModules[String(module._id)])
+            return (
+              <article key={module._id} className="cm-module-card">
+                <header className="cm-module-header">
+                  <div className="cm-module-heading-copy">
+                    <span className="cm-module-index">MODULE {String(index + 1).padStart(2, '0')}</span>
+                    <div className="cm-module-title">
+                      <h3>{module.name}</h3>
+                      <Badge variant={module.status === 'active' ? 'success' : 'default'}>{module.status}</Badge>
+                    </div>
+                    <p className="cm-module-desc">{module.description || 'No description added yet.'}</p>
+                  </div>
+                  <div className="cm-module-actions">
+                    <Button variant="secondary" size="small" onClick={() => {
+                      setEditingModule(module)
+                      setModuleForm({ name: module.name, description: module.description || '', status: module.status, order: module.order?.toString() || '' })
+                      setModuleFormOpen(true)
+                    }} icon={<FiEdit2 />}>Edit</Button>
+                    <Button variant="secondary" size="small" className="cm-delete" onClick={() => deleteModule(module)} icon={<FiTrash2 />}>Delete</Button>
+                    <button className={`cm-module-collapse${collapsed ? ' is-collapsed' : ''}`} type="button" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${module.name}`} aria-expanded={!collapsed} onClick={() => setCollapsedModules((current) => ({ ...current, [String(module._id)]: !current[String(module._id)] }))}><FiChevronRight /></button>
+                  </div>
+                </header>
+                {!collapsed && <div className="cm-module-content">
+                  <div className="cm-module-summary"><span>{publishedCount} of {moduleLessons.length} lessons published</span><div className="cm-progress-bar"><div className="cm-progress-fill" style={{ width: moduleLessons.length ? Math.round((publishedCount / moduleLessons.length) * 100) : 0 }} /></div><button type="button" onClick={() => { setEditingLesson(null); setLessonForm({ moduleId: String(module._id), title: '', description: '', source: 'direct', videoUrl: '', fileId: '', videoFile: null, thumbnailUrl: '', duration: '', lessonNumber: '', isFreePreview: false, isLockedAfterCompletion: false, lectureNotesUrl: '', published: false }); setLessonFormErrors({}); setLessonFormOpen(true) }}><FiPlus /> Add lesson to module</button></div>
+                  <div className="cm-module-lessons">
+                    {visibleLessons.length ? visibleLessons.map((lesson) => (
+                      <article key={lesson._id} className={`cm-lesson-row${String(previewLesson?._id) === String(lesson._id) ? ' cm-lesson-row-selected' : ''}`}>
+                        <div className="cm-lesson-info">
+                          <span className="cm-lesson-number">{lesson.lessonNumber}</span>
+                          <button className="cm-lesson-title-button" type="button" onClick={() => openLessonPreview(lesson)}>{lesson.title}</button>
+                          <span className={`cm-lesson-badge ${lesson.published ? 'cm-lesson-published' : 'cm-lesson-draft'}`}>{lesson.published ? 'Published' : 'Draft'}</span>
+                          <span className="cm-lesson-source">{lesson.source}</span>
+                          <span className="cm-lesson-duration">{lesson.duration || '—'}</span>
+                        </div>
+                        <div className="cm-lesson-actions">
+                          {(lesson.videoUrl || lesson.fileId) && <Button variant="secondary" size="small" onClick={() => openLessonPreview(lesson)} icon={<FiPlay />}>Preview</Button>}
+                          {!lesson.published && <Button className="cm-btn-publish" size="small" disabled={Boolean(publishingLessonId) || (!lesson.videoUrl && !lesson.fileId)} onClick={() => publishLesson(lesson)} icon={<FiShare2 />}>{publishingLessonId === String(lesson._id) ? 'Publishing…' : 'Publish'}</Button>}
+                          <Button variant="secondary" size="small" onClick={() => openLessonEditor(lesson)} icon={<FiEdit2 />}>Edit</Button>
+                          <Button variant="secondary" size="small" className="cm-delete" onClick={() => deleteLesson(lesson)} icon={<FiTrash2 />}>Delete</Button>
+                        </div>
+                      </article>
+                    )) : <p className="cm-empty">{courseSearch ? 'No lessons match your search in this module.' : 'No lessons in this module yet.'}</p>}
+                  </div>
+                </div>}
+              </article>
+            )
+          }) : (
           <div className="cm-empty-state">
             <FiBookOpen size={32} />
             <h3>No modules yet</h3>
             <p>Create your first module to start building your course.</p>
             <Button onClick={() => setModuleFormOpen(true)} icon={<FiPlus />}>Create Module</Button>
           </div>
-        )}
+          )}
+        </div>
+        <aside className="cm-preview-panel">
+          <div className="cm-preview-panel-heading"><span><FiPlay /> Lesson preview</span>{previewLesson && <button type="button" aria-label="Clear lesson preview" onClick={() => { setPreviewLesson(null); setPreviewVideoUrl(''); setPreviewVideoError(null) }}><FiX /></button>}</div>
+          {previewLesson ? <>
+            <div className="cm-preview-player">
+              {previewVideoError?.lessonId === String(previewLesson._id)
+                ? <p role="alert">{previewVideoError.message}</p>
+                : previewVideoUrl
+                  ? <video controls playsInline src={previewVideoUrl}>Your browser does not support video playback.</video>
+                  : lessonEmbedUrl(previewLesson.videoUrl)
+                    ? <iframe title={previewLesson.title} src={lessonEmbedUrl(previewLesson.videoUrl)} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen />
+                    : previewLesson.videoUrl
+                      ? <video controls playsInline src={previewLesson.videoUrl}>Your browser does not support video playback.</video>
+                      : previewLesson.fileId
+                        ? <span role="status">Loading private course video...</span>
+                        : <span>No video asset is attached to this lesson.</span>}
+            </div>
+            <div className="cm-preview-details">
+              <div><Badge variant={previewLesson.published ? 'success' : 'warning'}>{previewLesson.published ? 'Published' : 'Draft'}</Badge><span>{previewLesson.duration || 'Video lesson'}</span></div>
+              <h3>{previewLesson.title}</h3>
+              <p>{previewLesson.description || 'No lesson description added.'}</p>
+              <div className="cm-preview-source"><span>Source</span><strong>{previewLesson.source || 'direct'}</strong></div>
+              <Button variant="secondary" onClick={() => openLessonEditor(previewLesson)} icon={<FiEdit2 />}>Edit lesson</Button>
+              {previewLesson.videoUrl && <a className="cm-preview-open-link" href={previewLesson.videoUrl} target="_blank" rel="noreferrer">Open video source <FiArrowRight /></a>}
+            </div>
+          </> : <div className="cm-preview-empty"><FiVideo /><strong>Choose a lesson to preview</strong><span>Select Preview on a lesson to check its video and details.</span></div>}
+        </aside>
       </div>
     </section>
   )
@@ -771,7 +1097,7 @@ export default function CourseManagementPage() {
                 <p className="cm-library-meta">{lesson.source} • {dateLabel(lesson.publishedAt || lesson.createdAt)}</p>
               </div>
               <div className="cm-library-actions">
-                <Button variant="secondary" size="small" icon={<FiEye />}>Preview</Button>
+                <Button variant="secondary" size="small" icon={<FiEye />} onClick={() => openLessonPreview(lesson)}>Preview</Button>
                 <Button variant="secondary" size="small" icon={<FiCopy />}>Duplicate</Button>
                 <Button variant="secondary" size="small" className="cm-delete" onClick={() => deleteLesson(lesson)} icon={<FiTrash2 />}>Delete</Button>
               </div>
@@ -845,9 +1171,24 @@ export default function CourseManagementPage() {
                 ))}
               </div>
             </div>
-            <Input label="Module" select value={lessonForm.moduleId} onChange={(e) => setLessonForm({ ...lessonForm, moduleId: e.target.value })} options={modules.map((m) => ({ value: String(m._id), label: m.name }))} required error={lessonFormErrors.moduleId} />
+            <Input label="Module (optional)" select value={lessonForm.moduleId} onChange={(e) => setLessonForm({ ...lessonForm, moduleId: e.target.value })} options={[{ value: '', label: 'Save to course without a module' }, ...modules.map((m) => ({ value: String(m._id), label: m.name }))]} error={lessonFormErrors.moduleId} />
             <Input label="Lesson Title" value={lessonForm.title} onChange={(e) => setLessonForm({ ...lessonForm, title: e.target.value })} placeholder="e.g., Lesson 25: Self-Inductance" required error={lessonFormErrors.title} />
-            <Input label="Video URL / Embed Link" value={lessonForm.videoUrl} onChange={(e) => setLessonForm({ ...lessonForm, videoUrl: e.target.value })} placeholder={lessonForm.source === 'youtube' ? 'https://youtu.be/...' : lessonForm.source === 'vimeo' ? 'https://vimeo.com/...' : lessonForm.source === 'gdrive' ? 'https://drive.google.com/file/d/...' : 'Direct MP4 URL'} error={lessonFormErrors.videoUrl} helper={lessonForm.source === 'direct' ? 'Direct MP4 uploads use the existing TeachOS media storage.' : undefined} />
+            <Input label="Video URL / Embed Link" value={lessonForm.videoUrl} onChange={(e) => setLessonForm({ ...lessonForm, videoUrl: e.target.value, fileId: '', videoFile: null })} placeholder={lessonForm.source === 'youtube' ? 'https://youtu.be/...' : lessonForm.source === 'vimeo' ? 'https://vimeo.com/...' : lessonForm.source === 'gdrive' ? 'https://drive.google.com/file/d/...' : 'Direct MP4 URL'} error={lessonFormErrors.videoUrl} helper="Use a shareable video URL, or upload a file below." />
+              <label className="cm-field">
+                <span className="cm-field-label">Or upload a video file</span>
+                <input
+                  className="cm-input"
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime,video/x-matroska,video/ogg,.mp4,.webm,.mov,.m4v,.ogv,.mkv,.avi"
+                  onChange={(event) => {
+                    const videoFile = event.target.files?.[0] || null
+                    setLessonForm({ ...lessonForm, videoFile, fileId: '', ...(videoFile ? { videoUrl: '', source: 'direct' } : {}) })
+                  }}
+                />
+                <small className="cm-field-helper">MP4, WebM, MOV, or MKV · up to 200 MB. Files are stored privately and playable only by enrolled students.</small>
+                {lessonForm.fileId && <small className="cm-field-helper">A video file is attached to this lesson. Choose a replacement file or a video URL to change it.</small>}
+              </label>
+              {lessonSaving && videoUploadProgress > 0 && <p className="cm-field-helper" role="status">Uploading video: {videoUploadProgress}%</p>}
             <div className="cm-modal-form-row">
               <Input label="Lesson Number" type="number" value={lessonForm.lessonNumber} onChange={(e) => setLessonForm({ ...lessonForm, lessonNumber: e.target.value })} placeholder="25" />
               <Input label="Duration" value={lessonForm.duration} onChange={(e) => setLessonForm({ ...lessonForm, duration: e.target.value })} placeholder="48:15" />
@@ -874,8 +1215,8 @@ export default function CourseManagementPage() {
             </div>
             <div className="cm-modal-footer">
               <Button variant="secondary" type="button" onClick={() => setLessonFormOpen(false)}>Cancel</Button>
-              <Button onClick={saveLesson} disabled={lessonSaving} icon={<FiVideo />}>
-                {lessonSaving ? 'Saving...' : (editingLesson ? 'Save Changes' : 'Save & Add to Module')}
+              <Button type="submit" disabled={lessonSaving} icon={<FiVideo />}>
+                {lessonSaving ? 'Saving...' : (editingLesson ? 'Save Changes' : 'Submit Recorded Class')}
               </Button>
             </div>
           </form>
@@ -898,10 +1239,60 @@ export default function CourseManagementPage() {
           </header>
           <form className="cm-modal-form" onSubmit={saveLiveSession} noValidate>
             {liveSessionFormErrors._form && <p className="cm-modal-error">{liveSessionFormErrors._form}</p>}
-            <Input label="Session Topic" value={liveSessionForm.title} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, title: e.target.value })} placeholder="e.g., Faraday's Law Masterclass" required error={liveSessionFormErrors.title} />
-            <Input label="Google Meet Link" value={liveSessionForm.meetLink} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, meetLink: e.target.value })} placeholder="https://meet.google.com/..." helper="Create the meeting in Google Meet, then paste the link here." error={liveSessionFormErrors.meetLink} />
+            {!editingLiveSession && <label className="cm-toggle">
+              <input type="checkbox" checked={scheduleFromCurriculum} onChange={(event) => setScheduleFromCurriculum(event.target.checked)} />
+              <span className="cm-toggle-slider"></span>
+              Schedule each curriculum topic at a fixed weekly time
+            </label>}
+            {!scheduleFromCurriculum && <label className="cm-field">
+              <span className="cm-field-label">Curriculum topic</span>
+              <select
+                className="cm-input cm-select"
+                value={liveSessionForm.curriculumLessonId}
+                onChange={(event) => {
+                  const lesson = lessons.find((item) => item._id === event.target.value)
+                  setLiveSessionForm({ ...liveSessionForm, curriculumLessonId: event.target.value, title: lesson?.title || liveSessionForm.title })
+                }}
+              >
+                <option value="">Custom session topic</option>
+                {lessons.map((lesson) => <option key={lesson._id} value={lesson._id}>{lesson.lessonNumber}. {lesson.title}</option>)}
+              </select>
+              <small className="cm-field-helper">Choosing a course topic fills the title; you can still edit it below.</small>
+            </label>}
+            {scheduleFromCurriculum ? <>
+              <p className="cm-field-helper">TeachOS creates one class per curriculum topic in lesson order. You can edit each generated topic and meeting link later.</p>
+              <Input label="First class date (Dhaka time)" type="date" value={curriculumSchedule.startDate} onChange={(event) => setCurriculumSchedule({ ...curriculumSchedule, startDate: event.target.value })} required />
+              <Input label="Weekly start time (Dhaka time)" type="time" value={curriculumSchedule.startTime} onChange={(event) => setCurriculumSchedule({ ...curriculumSchedule, startTime: event.target.value })} required />
+              <fieldset className="cm-field">
+                <legend className="cm-field-label">Repeat on</legend>
+                <div className="cm-setting-row">
+                  {WEEKDAYS.map((day) => <label className="cm-toggle" key={day.value}>
+                    <input
+                      type="checkbox"
+                      checked={curriculumSchedule.daysOfWeek.includes(day.value)}
+                      onChange={(event) => setCurriculumSchedule({
+                        ...curriculumSchedule,
+                        daysOfWeek: event.target.checked
+                          ? [...curriculumSchedule.daysOfWeek, day.value].sort()
+                          : curriculumSchedule.daysOfWeek.filter((value) => value !== day.value),
+                      })}
+                    />
+                    <span className="cm-toggle-slider"></span>
+                    {day.label}
+                  </label>)}
+                </div>
+              </fieldset>
+            </> : <>
+              <Input label="Session Topic" value={liveSessionForm.title} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, title: e.target.value })} placeholder="e.g., Faraday's Law Masterclass" required error={liveSessionFormErrors.title} />
+              <Input label="Scheduled At" type="datetime-local" value={liveSessionForm.scheduledAt} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, scheduledAt: e.target.value })} />
+            </>}
+                {meetStatus?.connected && !scheduleFromCurriculum && !editingLiveSession && <label className="cm-toggle cm-create-meet-toggle">
+                  <input type="checkbox" checked={Boolean(liveSessionForm.createMeet)} onChange={(event) => setLiveSessionForm({ ...liveSessionForm, createMeet: event.target.checked })} />
+                  <span className="cm-toggle-slider"></span>
+                  Create a Google Calendar event and Meet link automatically
+                </label>}
+                <Input label="Google Meet Link (optional)" value={liveSessionForm.meetLink} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, meetLink: e.target.value })} placeholder="https://meet.google.com/..." helper={liveSessionForm.createMeet ? 'A generated Meet link will replace this manual link.' : 'Paste an existing Meet link, or connect Google Calendar to generate one.'} error={liveSessionFormErrors.meetLink} />
             <Input label="Target Batch" value={liveSessionForm.targetBatch} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, targetBatch: e.target.value })} placeholder="e.g., All Enrolled Students" />
-            <Input label="Scheduled At" type="datetime-local" value={liveSessionForm.scheduledAt} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, scheduledAt: e.target.value })} />
             <div className="cm-lesson-options">
               <label className="cm-toggle">
                 <input type="checkbox" checked={liveSessionForm.autoAttendance} onChange={(e) => setLiveSessionForm({ ...liveSessionForm, autoAttendance: e.target.checked })} />
@@ -927,7 +1318,7 @@ export default function CourseManagementPage() {
             <div className="cm-modal-footer">
               <Button variant="secondary" type="button" onClick={() => setLiveSessionFormOpen(false)}>Cancel</Button>
               <Button onClick={saveLiveSession} disabled={liveSessionSaving} icon={<FiCalendar />}>
-                {liveSessionSaving ? 'Creating...' : (editingLiveSession ? 'Save Session' : 'Schedule Session')}
+                {liveSessionSaving ? 'Creating...' : (editingLiveSession ? 'Save Session' : scheduleFromCurriculum ? 'Schedule Course Topics' : 'Schedule Session')}
               </Button>
             </div>
           </form>
@@ -990,11 +1381,6 @@ export default function CourseManagementPage() {
           </header>
           {toast && <Toast message={toast} tone={toastTone} onDismiss={() => setToast('')} />}
           {courseError && <div className="cm-error-banner" role="alert">{courseError}<button type="button" onClick={() => { setCourseError(''); refresh() }}>Retry</button></div>}
-          {activeTab === 'overview' && renderOverview()}
-          {activeTab === 'live' && renderLiveClass()}
-          {activeTab === 'attendance' && renderAttendance()}
-          {activeTab === 'modules' && renderModulesLessons()}
-          {activeTab === 'library' && renderLessonLibrary()}
           <nav className="cm-tab-nav" aria-label="Course management sections">
             <button className={`cm-tab ${activeTab === 'overview' ? 'cm-tab-active' : ''}`} onClick={() => setActiveTab('overview')}>
               <FiGrid size={18} /> Overview
@@ -1012,12 +1398,31 @@ export default function CourseManagementPage() {
               <FiFileText size={18} /> Lesson Library
             </button>
           </nav>
+          {activeTab === 'overview' && renderOverview()}
+          {activeTab === 'live' && renderLiveClass()}
+          {activeTab === 'attendance' && renderAttendance()}
+          {activeTab === 'modules' && renderModulesLessons()}
+          {activeTab === 'library' && renderLessonLibrary()}
         </div>
         <footer className="cm-footer"><Link to="/dashboard">TeachOS</Link><span>Course data is stored in MongoDB.</span></footer>
       </main>
       {renderModuleModal()}
       {renderLessonModal()}
       {renderLiveSessionModal()}
+      {previewLesson && activeTab !== 'modules' && <div className="cm-modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setPreviewLesson(null) }}>
+        <section className="cm-modal cm-modal-wide" role="dialog" aria-modal="true" aria-label={`Preview ${previewLesson.title}`}>
+          <header className="cm-modal-header">
+            <div><p className="cm-modal-eyebrow">Lesson preview</p><h2>{previewLesson.title}</h2></div>
+            <button type="button" className="cm-modal-close" aria-label="Close preview" onClick={() => setPreviewLesson(null)}><FiX /></button>
+          </header>
+          {previewVideoError?.lessonId === String(previewLesson._id) ? <p className="cm-modal-error" role="alert">{previewVideoError.message}</p>
+            : previewVideoUrl ? <video className="cm-video-preview" controls playsInline src={previewVideoUrl}>Your browser does not support video playback.</video>
+              : lessonEmbedUrl(previewLesson.videoUrl)
+                ? <div className="cm-modal-video-frame"><iframe title={previewLesson.title} src={lessonEmbedUrl(previewLesson.videoUrl)} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen /></div>
+                : previewLesson.videoUrl ? <video className="cm-video-preview" controls playsInline src={previewLesson.videoUrl}>Your browser does not support video playback.</video>
+                  : <p className="cm-field-helper" role="status">Loading video preview...</p>}
+        </section>
+      </div>}
     </div>
   )
 }

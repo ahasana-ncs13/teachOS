@@ -14,30 +14,23 @@ const firebaseConfig = {
 }
 const isConfigured = Object.values(firebaseConfig).every(Boolean)
 const auth = isConfigured ? getAuth(getApps().length ? getApps()[0] : initializeApp(firebaseConfig)) : null
-let currentDemoToken = null
+
+function authenticationConfigurationError() {
+  const error = new Error('Firebase Authentication is not configured. Set the VITE_FIREBASE_* values in client/.env.')
+  error.code = 'auth/configuration-not-found'
+  return error
+}
 
 setAuthTokenProvider(
   // Normal: returns cached token (Firebase auto-refreshes when close to expiry)
   async () => {
-    if (auth?.currentUser) {
-      try {
-        return await auth.currentUser.getIdToken()
-      } catch {
-        return currentDemoToken
-      }
-    }
-    return currentDemoToken
+    if (!auth?.currentUser) return null
+    return auth.currentUser.getIdToken()
   },
   // Force-refresh: called by the 401 retry interceptor
   async () => {
-    if (auth?.currentUser) {
-      try {
-        return await auth.currentUser.getIdToken(true)
-      } catch {
-        return null
-      }
-    }
-    return null
+    if (!auth?.currentUser) return null
+    return auth.currentUser.getIdToken(true)
   },
 )
 
@@ -59,12 +52,7 @@ export function AuthProvider({ children }) {
     }
   }) : undefined, [])
   const signIn = async (email, password, remember = true) => {
-    if (!auth) {
-      currentDemoToken = `demo-teacher:${email}`
-      const demoUser = { email, uid: `demo-${email}`, emailVerified: true, role: 'teacher' }
-      setUser(demoUser)
-      return demoUser
-    }
+    if (!auth) throw authenticationConfigurationError()
     await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence)
     const credential = await signInWithEmailAndPassword(auth, email, password)
     const signedInUser = await loadUserProfile(credential.user)
@@ -72,12 +60,7 @@ export function AuthProvider({ children }) {
     return signedInUser
   }
   const signInWithProvider = async () => {
-    if (!auth) {
-      currentDemoToken = 'demo-student:google@demo.teachos'
-      const demoUser = { email: 'google@demo.teachos', emailVerified: true, role: 'student' }
-      setUser(demoUser)
-      return demoUser
-    }
+    if (!auth) throw authenticationConfigurationError()
     const credential = await signInWithPopup(auth, new GoogleAuthProvider())
     const profile = await saveUser(credential.user, { role: 'student', provider: 'google' })
     const signedInUser = { ...credential.user, ...profile }
@@ -85,20 +68,11 @@ export function AuthProvider({ children }) {
     return signedInUser
   }
   const sendPasswordReset = async (email) => {
-    if (!auth) {
-      const error = new Error('Password reset is unavailable in demo mode.')
-      error.code = 'auth/demo-mode'
-      throw error
-    }
+    if (!auth) throw authenticationConfigurationError()
     await sendPasswordResetEmail(auth, email)
   }
   const signUp = async (email, password, profile = {}) => {
-    if (!auth) {
-      currentDemoToken = `demo-${profile.role || 'teacher'}:${email}`
-      const demoUser = { email, emailVerified: true, displayName: profile.fullName, role: profile.role || 'teacher' }
-      setUser(demoUser)
-      return demoUser
-    }
+    if (!auth) throw authenticationConfigurationError()
     const credential = await createUserWithEmailAndPassword(auth, email, password)
     await updateProfile(credential.user, { displayName: profile.fullName })
     const savedProfile = await saveUser(credential.user, profile)
@@ -107,7 +81,6 @@ export function AuthProvider({ children }) {
     return signedInUser
   }
   const signOut = () => {
-    currentDemoToken = null
     return auth ? firebaseSignOut(auth) : Promise.resolve(setUser(null))
   }
   return <AuthContext.Provider value={{ user, signIn, signInWithProvider, sendPasswordReset, signUp, signOut, isConfigured, authLoading }}>{children}</AuthContext.Provider>

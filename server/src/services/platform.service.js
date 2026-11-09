@@ -1,5 +1,6 @@
 import { getDatabase } from '../db.js'
 import { parseObjectId } from '../utils/validation.js'
+import { LEGACY_SAMPLE_PLATFORM } from '../utils/sampleData.js'
 import { writeAuditLog } from './audit.service.js'
 
 /**
@@ -51,7 +52,10 @@ export async function createPlatform({ name, slug, plan = 'standard', renewalDat
 
 export async function listPlatforms({ page = 1, limit = 20, status, search }) {
   const database = getDatabase()
-  const filter = { status: { $ne: 'removed' } }
+  const filter = {
+    status: { $ne: 'removed' },
+    $nor: [LEGACY_SAMPLE_PLATFORM],
+  }
 
   if (status && ['active', 'suspended'].includes(status)) {
     filter.status = status
@@ -89,7 +93,7 @@ export async function getPlatformById(id) {
   const objectId = parseObjectId(id, 'platformId')
   const database = getDatabase()
   const platform = await database.collection('platforms').findOne(
-    { _id: objectId, status: { $ne: 'removed' } },
+    { _id: objectId, status: { $ne: 'removed' }, $nor: [LEGACY_SAMPLE_PLATFORM] },
     { projection: { removedAt: 0, removedBy: 0 } }
   )
 

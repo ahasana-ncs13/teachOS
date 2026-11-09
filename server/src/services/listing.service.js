@@ -1,6 +1,7 @@
 import { getDatabase } from '../db.js'
 import { parseObjectId } from '../utils/validation.js'
 import { tenantQuery, tenantInsert } from '../utils/tenant.js'
+import { LEGACY_SAMPLE_LISTING_NAMES, LEGACY_SAMPLE_USER_UIDS } from '../utils/sampleData.js'
 import { writeAuditLog } from './audit.service.js'
 
 async function getOwnedCourse(req, courseId) {
@@ -47,14 +48,169 @@ function getEnrollmentLookup() {
  * zero admission fee. New listings carry `admissionFee` and `monthlyTuitionFee`.
  */
 export function computeListingPricing(listing) {
+  const isOneTime = listing.pricingType === 'ONE_TIME' || (!listing.monthlyTuitionFee && Number(listing.fee) > 0 && listing.pricingType !== 'MONTHLY_SUBSCRIPTION')
+  if (isOneTime) {
+    const fee = Number(listing.fee ?? listing.price ?? listing.oneTimeFee ?? 0) || 0
+    return {
+      pricingType: 'ONE_TIME',
+      admissionFee: 0,
+      monthlyTuitionFee: 0,
+      initialPaymentTotal: fee,
+      isOneTime: true,
+    }
+  }
   const monthlyTuitionFee = Number(listing.monthlyTuitionFee ?? listing.fee ?? 0) || 0
   const admissionFee = Number(listing.admissionFee ?? 0) || 0
   const initialPaymentTotal = admissionFee + monthlyTuitionFee
   return {
+    pricingType: 'MONTHLY_SUBSCRIPTION',
     admissionFee,
     monthlyTuitionFee,
     initialPaymentTotal,
+    isOneTime: false,
   }
+}
+
+export function getPublicListingFilter() {
+  return {
+    status: 'active',
+    isBanned: { $ne: true },
+    teacherUid: {
+      $nin: LEGACY_SAMPLE_USER_UIDS,
+      $not: /^demo-/,
+    },
+    name: { $nin: LEGACY_SAMPLE_LISTING_NAMES },
+    $or: [
+      { published: true },
+      { published: { $exists: false } },
+    ],
+    $nor: [
+      { category: /offline/i },
+      { deliveryMode: { $in: ['in_person', 'hybrid'] } },
+      { location: /offline|in.person|hybrid/i },
+    ],
+  }
+}
+
+export async function getAdminListings({ page = 1, limit = 100, search = '', category = '' }) {
+  const database = getDatabase()
+  const filter = {
+    status: { $ne: 'removed' },
+    teacherUid: {
+      $nin: LEGACY_SAMPLE_USER_UIDS,
+      $not: /^demo-/,
+    },
+    name: { $nin: LEGACY_SAMPLE_LISTING_NAMES },
+  }
+  if (search) {
+    const safeSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    filter.$or = [
+      { name: { $regex: safeSearch, $options: 'i' } },
+      { teacherName: { $regex: safeSearch, $options: 'i' } },
+      { location: { $regex: safeSearch, $options: 'i' } },
+      { category: { $regex: safeSearch, $options: 'i' } },
+    ]
+  }
+  if (category) filter.category = category
+
+  const collection = database.collection('listings')
+  const [listings, total] = await Promise.all([
+    collection
+      .find(filter, { projection: { removedAt: 0, removedBy: 0, platformId: 0 } })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .toArray(),
+    collection.countDocuments(filter),
+  ])
+  return {
+    listings,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
+  }
+}
+
+export async function setListingBan(id, { banned, reason = '', actorUid }) {
+  const objectId = parseObjectId(id, 'listingId')
+  const database = getDatabase()
+  const collection = database.collection('listings')
+  const existing = await collection.findOne({ _id: objectId, status: { $ne: 'removed' } })
+  if (!existing) {
+    const error = new Error('Course listing not found.')
+    error.status = 404
+    error.code = 'LISTING_NOT_FOUND'
+    throw error
+  }
+
+  const now = new Date()
+  const update = banned
+    ? {
+        $set: {
+          isBanned: true,
+          banReason: reason.trim() || 'Administrative moderation',
+          bannedAt: now,
+          bannedBy: actorUid,
+          updatedAt: now,
+        },
+      }
+    : {
+        $unset: { isBanned: '', banReason: '', bannedAt: '', bannedBy: '' },
+        $set: { updatedAt: now },
+      }
+  const result = await collection.updateOne({ _id: objectId, status: { $ne: 'removed' } }, update)
+  if (!result.matchedCount) {
+    const error = new Error('Course listing not found.')
+    error.status = 404
+    error.code = 'LISTING_NOT_FOUND'
+    throw error
+  }
+  const listing = await collection.findOne(
+    { _id: objectId },
+    { projection: { removedAt: 0, removedBy: 0, platformId: 0 } },
+  )
+
+  await writeAuditLog({
+    actorUid,
+    actorRole: 'admin',
+    action: banned ? 'BAN_LISTING' : 'UNBAN_LISTING',
+    targetType: 'listing',
+    targetId: objectId,
+    meta: { name: existing.name, reason: banned ? (reason.trim() || 'Administrative moderation') : undefined },
+  })
+
+  return listing
+}
+
+async function addPublicListingMetrics(database, listings) {
+  if (!listings.length) return listings
+  const listingIds = listings.map((listing) => listing._id)
+  const [enrollments, attendance] = await Promise.all([
+    database.collection('studentEnrollments').aggregate([
+      { $match: { listingId: { $in: listingIds }, status: 'active' } },
+      { $group: { _id: '$listingId', count: { $sum: 1 } } },
+    ]).toArray(),
+    database.collection('sessionAttendance').aggregate([
+      { $match: { listingId: { $in: listingIds }, status: { $in: ['present', 'absent'] } } },
+      { $group: { _id: { listingId: '$listingId', status: '$status' }, count: { $sum: 1 } } },
+    ]).toArray(),
+  ])
+  const enrollmentCounts = new Map(enrollments.map((record) => [String(record._id), record.count]))
+  const attendanceCounts = new Map()
+  for (const record of attendance) {
+    const listingId = String(record._id.listingId)
+    const counts = attendanceCounts.get(listingId) || { attended: 0, total: 0 }
+    counts.total += record.count
+    if (record._id.status === 'present') counts.attended += record.count
+    attendanceCounts.set(listingId, counts)
+  }
+  return listings.map((listing) => {
+    const counts = attendanceCounts.get(String(listing._id))
+    return {
+      ...listing,
+      enrolledCount: enrollmentCounts.get(String(listing._id)) || 0,
+      attendancePercentage: counts?.total ? Math.round((counts.attended / counts.total) * 100) : null,
+      rating: null,
+    }
+  })
 }
 
 /**
@@ -66,11 +222,13 @@ export async function createListing(req, data) {
   const course = await getOwnedCourse(req, data.courseId)
 
   const now = new Date()
+  const pricingType = data.pricingType || (Number(data.monthlyTuitionFee) > 0 ? 'MONTHLY_SUBSCRIPTION' : 'ONE_TIME')
   const newListing = tenantInsert(req, {
     name: data.name.trim(),
     category: 'Online',
     courseId: course._id,
     courseName: course.name,
+    pricingType,
     deliveryMode: data.deliveryMode || course.deliveryMode,
     days: data.days,
     startTime: data.startTime,
@@ -79,8 +237,8 @@ export async function createListing(req, data) {
     admissionFee: data.admissionFee,
     monthlyTuitionFee: data.monthlyTuitionFee,
     // `fee` is retained for backward compatibility with legacy readers that
-    // expect the monthly tuition amount on the listing document.
-    fee: data.monthlyTuitionFee,
+    // expect the course fee / tuition amount on the listing document.
+    fee: pricingType === 'ONE_TIME' ? (data.admissionFee || data.monthlyTuitionFee || data.fee) : data.monthlyTuitionFee,
     duration: `${data.days.join(', ')} · ${data.startTime}–${data.endTime}`,
     location: data.location?.trim() || '',
     description: data.description?.trim() || '',
@@ -89,6 +247,7 @@ export async function createListing(req, data) {
     email: req.user.email,
     teacherName: req.user.fullName || req.user.displayName || req.user.email,
     status: data.status || 'active',
+    published: false,
     createdAt: now,
     updatedAt: now,
   }, 'teacherUid')
@@ -110,30 +269,35 @@ export async function createListing(req, data) {
 
 export async function getListings(req, { search, category, page = 1, limit = 20 }) {
   const database = getDatabase()
-  const filter = {
-    $and: [
-      { status: { $ne: 'removed' } },
-      { status: { $ne: 'draft' } },
-      { status: { $ne: 'completed' } },
-    ],
-  }
+  const filter = getPublicListingFilter()
+  const conditions = []
 
   if (category && typeof category === 'string' && category !== 'All') {
     const normalizedCategory = category.trim()
-    filter.category = /^online(?: course)?$/i.test(normalizedCategory)
-      ? { $in: [/^online$/i, /^online course$/i] }
-      : { $regex: new RegExp(`^${normalizedCategory.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+    const categoryPattern = new RegExp(normalizedCategory.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    conditions.push({
+      $or: [
+        { category: categoryPattern },
+        { courseName: categoryPattern },
+        { name: categoryPattern },
+        { description: categoryPattern },
+      ],
+    })
   }
 
   if (search && typeof search === 'string' && search.trim()) {
     const safeRegex = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    filter.$or = [
-      { name: { $regex: safeRegex, $options: 'i' } },
-      { description: { $regex: safeRegex, $options: 'i' } },
-      { location: { $regex: safeRegex, $options: 'i' } },
-      { teacherName: { $regex: safeRegex, $options: 'i' } },
-    ]
+    conditions.push({
+      $or: [
+        { name: { $regex: safeRegex, $options: 'i' } },
+        { courseName: { $regex: safeRegex, $options: 'i' } },
+        { description: { $regex: safeRegex, $options: 'i' } },
+        { location: { $regex: safeRegex, $options: 'i' } },
+        { teacherName: { $regex: safeRegex, $options: 'i' } },
+      ],
+    })
   }
+  if (conditions.length) filter.$and = conditions
 
   const skip = (page - 1) * limit
   const collection = database.collection('listings')
@@ -149,7 +313,7 @@ export async function getListings(req, { search, category, page = 1, limit = 20 
   ])
 
   return {
-    listings: items,
+    listings: await addPublicListingMetrics(database, items),
     pagination: {
       page,
       limit,
@@ -161,13 +325,7 @@ export async function getListings(req, { search, category, page = 1, limit = 20 
 
 export async function getLatestListings(req, count = 6) {
   const database = getDatabase()
-  const filter = {
-    $and: [
-      { status: { $ne: 'removed' } },
-      { status: { $ne: 'draft' } },
-      { status: { $ne: 'completed' } },
-    ],
-  }
+  const filter = getPublicListingFilter()
 
   const limit = Math.min(Math.max(Number(count) || 6, 1), 20)
 
@@ -178,7 +336,7 @@ export async function getLatestListings(req, count = 6) {
     .limit(limit)
     .toArray()
 
-  return { listings: items }
+  return { listings: await addPublicListingMetrics(database, items) }
 }
 
 export async function getListingById(id) {
@@ -187,11 +345,7 @@ export async function getListingById(id) {
   const listing = await database.collection('listings').findOne(
     {
       _id: objectId,
-      $and: [
-        { status: { $ne: 'removed' } },
-        { status: { $ne: 'draft' } },
-        { status: { $ne: 'completed' } },
-      ],
+      ...getPublicListingFilter(),
     },
     { projection: { removedAt: 0, removedBy: 0, platformId: 0, teacherUid: 0 } }
   )
@@ -208,7 +362,12 @@ export async function getListingById(id) {
 
 export async function getMyListings(req, { page = 1, limit = 20, search = '', status = 'All', courseId, category = 'All', sort = 'newest' }) {
   const database = getDatabase()
-  const filter = tenantQuery(req, {}, 'teacherUid')
+  const ownerFilter = tenantQuery(req, {}, 'teacherUid')
+  if (req.user.role === 'admin') {
+    ownerFilter.teacherUid = { $nin: LEGACY_SAMPLE_USER_UIDS, $not: /^demo-/ }
+    ownerFilter.name = { $nin: LEGACY_SAMPLE_LISTING_NAMES }
+  }
+  const filter = { ...ownerFilter }
   const safeSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   if (safeSearch) {
     filter.$or = [
@@ -243,7 +402,7 @@ export async function getMyListings(req, { page = 1, limit = 20, search = '', st
   ])
 
   const [stats] = await collection.aggregate([
-    { $match: tenantQuery(req, {}, 'teacherUid') },
+    { $match: ownerFilter },
     ...enrollmentLookup,
     {
       $group: {
@@ -306,6 +465,7 @@ export async function updateListing(req, id, updateData) {
 
   // Teachers can update their own listings; the global TeachOS admin can update any listing.
   const updates = {}
+  if (updateData.pricingType !== undefined) updates.pricingType = updateData.pricingType
   if (updateData.name !== undefined) updates.name = updateData.name.trim()
   if (updateData.category !== undefined) updates.category = updateData.category
   if (updateData.admissionFee !== undefined) updates.admissionFee = updateData.admissionFee
@@ -323,6 +483,11 @@ export async function updateListing(req, id, updateData) {
   if (updateData.endTime !== undefined) updates.endTime = updateData.endTime
   if (updateData.capacity !== undefined) updates.capacity = updateData.capacity
   if (updateData.status !== undefined) updates.status = updateData.status
+  if (updateData.published !== undefined) {
+    updates.published = updateData.published
+    updates.publishedAt = updateData.published ? (existing.publishedAt || new Date()) : null
+    if (updateData.published && existing.status === 'draft') updates.status = 'active'
+  }
   if (updateData.courseId !== undefined) {
     const course = await getOwnedCourse(req, updateData.courseId)
     updates.courseId = course._id
