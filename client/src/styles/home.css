@@ -14,6 +14,12 @@
 .active-filters:empty { display: none; }
 .active-filters button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid #ded4ef; border-radius: 20px; background: #f0ebfb; color: #5d42a8; font: 600 10px 'DM Sans', sans-serif; cursor: pointer; }
 .listing-image { display: block; width: 100%; height: 150px; margin-bottom: 15px; border-radius: 8px; object-fit: cover; }
+/* Course name + batch name labels on public listing cards */
+.listing-course-label { display: inline-flex; align-items: center; gap: 5px; margin: 14px 0 2px; padding: 3px 8px; border-radius: 4px; background: #dff5eb; color: var(--blue); font: 600 12px 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .5px; }
+.listing-course-label svg { flex: 0 0 auto; width: 11px; height: 11px; }
+.listing-batch-name { margin: 2px 0 5px; font: 700 15px 'Plus Jakarta Sans', sans-serif; }
+/* When a course-label is shown above the batch h3, collapse the h3's default top margin */
+.listing-card:has(.listing-course-label) h3 { margin-top: 0; }
 .home-no-results { display: grid; justify-items: center; gap: 8px; padding: 42px 18px; border: 1px solid #e5def1; border-radius: 11px; background: rgb(255 255 255 / 70%); text-align: center; }
 .home-no-results > svg { color: var(--blue); font-size: 25px; }
 .home-no-results h3, .home-no-results p { margin: 0; }

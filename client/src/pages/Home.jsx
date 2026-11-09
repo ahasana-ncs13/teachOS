@@ -286,7 +286,41 @@ function ListingCard({ data, onDetails }) {
   const admission = Number(data.admissionFee || 0)
   const tuition = Number(data.monthlyTuitionFee ?? data.fee) || 0
   const total = isOneTime ? (admission || Number(data.fee) || 0) : admission + tuition
-  return <article className="listing-card">{data.image && <img className="listing-image" src={data.image} alt="" loading="lazy" />}<div className="listing-top"><span className={`listing-type ${categoryClass}`}>{data.category}</span><span className="listing-badge">{data.duration}</span></div><h3>{data.name}</h3><p className="listing-location"><FiMapPin /> {data.location || 'Online'}</p><div className="teacher"><span>{teacherName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><div><b>{teacherName} <FiCheck /></b><small>{data.email || 'TeachOS educator'}</small></div></div><div className="listing-meta"><span><FiBookOpen /> Starts: {startDate}</span></div><div className="course-listing-metrics"><span><FiUsers /> {data.enrolledCount} enrolled</span><span>{data.attendancePercentage === null ? 'Attendance: no records' : `Attendance: ${data.attendancePercentage}%`}</span><span>{data.rating === null ? 'Not rated' : `${data.rating} / 5`}</span></div><div className="listing-footer"><div><small>{isOneTime ? 'Lifetime access · one-time' : 'Due now · then monthly tuition'}</small><strong>{total ? `৳${total.toLocaleString('en-BD')}` : 'Free'}</strong></div><button type="button" onClick={onDetails}>See details</button></div></article>
+  return (
+    <article className="listing-card">
+      {data.image && <img className="listing-image" src={data.image} alt="" loading="lazy" />}
+      <div className="listing-top">
+        <span className={`listing-type ${categoryClass}`}>{data.category}</span>
+        <span className="listing-badge">{data.duration}</span>
+      </div>
+      {data.courseName && (
+        <p className="listing-course-label">
+          <FiBookOpen /> {data.courseName}
+        </p>
+      )}
+      <h3 className="listing-batch-name">{data.name}</h3>
+      <p className="listing-location"><FiMapPin /> {data.location || 'Online'}</p>
+      <div className="teacher">
+        <span>{teacherName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span>
+        <div><b>{teacherName} <FiCheck /></b><small>{data.email || 'TeachOS educator'}</small></div>
+      </div>
+      <div className="listing-meta">
+        <span><FiBookOpen /> Starts: {startDate}</span>
+      </div>
+      <div className="course-listing-metrics">
+        <span><FiUsers /> {data.enrolledCount} enrolled</span>
+        <span>{data.attendancePercentage === null ? 'Attendance: no records' : `Attendance: ${data.attendancePercentage}%`}</span>
+        <span>{data.rating === null ? 'Not rated' : `${data.rating} / 5`}</span>
+      </div>
+      <div className="listing-footer">
+        <div>
+          <small>{isOneTime ? 'Lifetime access · one-time' : 'Due now · then monthly tuition'}</small>
+          <strong>{total ? `৳${total.toLocaleString('en-BD')}` : 'Free'}</strong>
+        </div>
+        <button type="button" onClick={onDetails}>See details</button>
+      </div>
+    </article>
+  )
 }
 
 function ListingModal({ listing, user, close, onEnroll }) {

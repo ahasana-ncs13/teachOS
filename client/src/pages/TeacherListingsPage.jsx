@@ -65,7 +65,7 @@ function ListingCard({ listing, onView, onEdit, onStudents, onAssignments, onDel
         {isOneTime ? 'Lifetime' : 'Subscription'}
       </span>
     </header>
-    <h2>{listing.name}</h2>
+    <h2 className="listing-batch-name">{listing.name}</h2>
     <p className="listing-course-name"><FiBookOpen /> {listing.courseName || listing.course?.name || 'Course not linked'}</p>
     <div className="listing-card-details">
       <p><FiCalendar /><span>{days}</span></p>

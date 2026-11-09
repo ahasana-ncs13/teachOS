@@ -71,8 +71,10 @@
 .listing-status-pill.draft { background: #fff4df; color: #94630a; }
 .listing-status-pill.completed { background: #eef0f4; color: #656b78; }
 .listing-category-tag { background: #f0efff; color: var(--listing-primary); }
-.teacher-listing-card h2 { overflow: hidden; margin: 13px 0 5px; color: var(--listing-text); font-size: 15px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; }
-.listing-course-name { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--listing-secondary); font-size: 10px; font-weight: 600; }
+/* Batch name (h2) + course name (.listing-course-name) labels */
+.teacher-listing-card h2,
+.teacher-listing-card .listing-batch-name { overflow: hidden; margin: 13px 0 2px; color: var(--listing-text); font-size: 15px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; }
+.listing-course-name { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 1px; padding: 3px 8px; border-radius: 4px; background: #ede9fe; color: var(--listing-primary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
 .listing-course-name svg { flex: 0 0 auto; width: 13px; height: 13px; }
 .listing-card-details { display: grid; gap: 8px; margin: 15px 0; }
 .listing-card-details p { display: flex; min-width: 0; align-items: center; gap: 8px; margin: 0; color: #535b6b; font-size: 10px; }
