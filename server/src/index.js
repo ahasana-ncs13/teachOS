@@ -355,7 +355,7 @@ app.put('/api/dashboard/:uid/attendance', async (request, response) => {
       new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
     return response.status(400).json({ message: 'A valid user ID, class ID, date, and attendance list are required' })
   }
-  if (attendance.some((record) => !record || typeof record !== 'object' || typeof record.studentId !== 'string' || !['present', 'absent', 'late', null].includes(record.status))) {
+  if (attendance.some((record) => !record || typeof record !== 'object' || typeof record.studentId !== 'string' || !['present', 'absent', 'late', 'excused', null].includes(record.status))) {
     return response.status(400).json({ message: 'Each attendance record must have a student ID and a valid status' })
   }
 

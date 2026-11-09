@@ -300,7 +300,7 @@ listingRouter.get('/listings/:id/students', verifyToken, requireRole('teacher'),
     const students = await database.collection('studentEnrollments')
       .find(
         { listingId, status: 'active' },
-        { projection: { studentUid: 0, listingId: 0, teacherUid: 0 } },
+        { projection: { listingId: 0, teacherUid: 0 } },
       )
       .sort({ enrolledAt: -1 })
       .toArray()

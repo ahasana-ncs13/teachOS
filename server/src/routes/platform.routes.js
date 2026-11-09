@@ -16,6 +16,7 @@ import {
 } from '../services/settlementScheduler.service.js'
 import { excludeLegacySampleUsers } from '../utils/sampleData.js'
 import { writeAuditLog } from '../services/audit.service.js'
+import { getAdminAttendanceOverview, exportAdminAttendanceCSV } from '../services/adminAttendance.service.js'
 
 export const platformRouter = Router()
 
@@ -517,6 +518,44 @@ platformRouter.delete('/platforms/:id', requireRole('admin'), async (req, res, n
       actorUid: req.authUid,
     })
     res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+platformRouter.get('/admin/attendance', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const { listingId, teacherUid, status, studentSearch, startDate, endDate, page, limit } = req.query
+    const result = await getAdminAttendanceOverview({
+      listingId,
+      teacherUid,
+      status,
+      studentSearch,
+      startDate,
+      endDate,
+      page,
+      limit,
+    })
+    res.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+platformRouter.get('/admin/attendance/export', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const { listingId, teacherUid, status, studentSearch, startDate, endDate } = req.query
+    const csv = await exportAdminAttendanceCSV({
+      listingId,
+      teacherUid,
+      status,
+      studentSearch,
+      startDate,
+      endDate,
+    })
+    res.setHeader('Content-Type', 'text/csv;charset=utf-8')
+    res.setHeader('Content-Disposition', 'attachment; filename="teachos-admin-attendance.csv"')
+    res.send(csv)
   } catch (error) {
     next(error)
   }

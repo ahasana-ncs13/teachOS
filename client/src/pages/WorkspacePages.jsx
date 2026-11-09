@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiClock, FiDownload, FiExternalLink, FiGrid, FiHelpCircle, FiLogOut, FiPlay, FiPlus, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
+import { FiAlertTriangle, FiBookOpen, FiCalendar, FiCheck, FiCheckCircle, FiClock, FiDownload, FiEdit2, FiExternalLink, FiFileText, FiGrid, FiHelpCircle, FiList, FiLogOut, FiPlay, FiPlus, FiRefreshCw, FiSearch, FiSettings, FiUsers, FiX } from 'react-icons/fi'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
@@ -244,6 +244,31 @@ function DirectoryPage() {
 function AttendancePage() {
   const { user } = useAuth()
   const uid = user.uid
+
+  // Mode: 'sessions' (Course cohorts & live sessions) | 'classes' (legacy classroom roster)
+  const [tab, setTab] = useState('sessions')
+
+  // ── SESSIONS MODE STATE ──
+  const [listings, setListings] = useState([])
+  const [selectedListingId, setSelectedListingId] = useState('')
+  const [liveSessions, setLiveSessions] = useState([])
+  const [selectedSessionId, setSelectedSessionId] = useState('')
+  const [enrolledStudents, setEnrolledStudents] = useState([])
+  const [sessionAttendanceRecords, setSessionAttendanceRecords] = useState([])
+  const [sessionDraft, setSessionDraft] = useState({}) // studentUid -> status
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [sessionSaving, setSessionSaving] = useState(false)
+  const [sessionExporting, setSessionExporting] = useState(false)
+  const [sessionSearch, setSessionSearch] = useState('')
+  const [sessionStatusFilter, setSessionStatusFilter] = useState('all')
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [newSessionData, setNewSessionData] = useState({
+    title: '',
+    scheduledAt: new Date().toISOString().slice(0, 16),
+    meetLink: '',
+  })
+
+  // ── LEGACY CLASSES MODE STATE ──
   const [classes, setClasses] = useState([])
   const [records, setRecords] = useState([])
   const [classId, setClassId] = useState('')
@@ -252,9 +277,235 @@ function AttendancePage() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // Shared banners & quick action
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [quickOpen, setQuickOpen] = useState(false)
+
+  // Load teacher listings and legacy classes on mount
+  useEffect(() => {
+    let current = true
+    Promise.all([
+      api.get('/listings/my', { params: { limit: 100 } }),
+      api.get(`/classes/${encodeURIComponent(uid)}`),
+      api.get(`/attendance/${encodeURIComponent(uid)}`),
+    ]).then(([listingsRes, classRes, attendanceRes]) => {
+      if (!current) return
+      const myListings = listingsRes.data?.listings || []
+      setListings(myListings)
+      if (myListings.length > 0) {
+        setSelectedListingId(String(myListings[0]._id))
+      }
+
+      const nextClasses = classRes.data?.classes || []
+      setClasses(nextClasses)
+      setRecords(attendanceRes.data?.attendanceRecords || [])
+      setClassId(nextClasses[0]?.id || '')
+    }).catch((reqErr) => {
+      if (current) setError(reqErr.response?.data?.message || 'Could not initialize attendance data.')
+    }).finally(() => {
+      if (current) setLoading(false)
+    })
+    return () => { current = false }
+  }, [uid])
+
+  // When selected listing changes in sessions mode, load sessions, students, and full attendance history
+  useEffect(() => {
+    if (!selectedListingId) {
+      setLiveSessions([])
+      setEnrolledStudents([])
+      setSessionAttendanceRecords([])
+      setSelectedSessionId('')
+      return undefined
+    }
+
+    let current = true
+    setSessionsLoading(true)
+    setError('')
+    Promise.all([
+      api.get(`/course-management/${encodeURIComponent(selectedListingId)}/live-sessions`),
+      api.get(`/listings/${encodeURIComponent(selectedListingId)}/students`),
+      api.get(`/course-management/${encodeURIComponent(selectedListingId)}/attendance`),
+    ]).then(([sessionsRes, studentsRes, attendanceRes]) => {
+      if (!current) return
+      const sessionsList = sessionsRes.data?.sessions || []
+      setLiveSessions(sessionsList)
+      setSelectedSessionId(sessionsList[0]?._id ? String(sessionsList[0]._id) : '')
+
+      setEnrolledStudents(studentsRes.data?.students || [])
+      setSessionAttendanceRecords(attendanceRes.data?.records || [])
+    }).catch((reqErr) => {
+      if (current) setError(reqErr.response?.data?.message || 'Could not load course sessions or roster.')
+    }).finally(() => {
+      if (current) setSessionsLoading(false)
+    })
+    return () => { current = false }
+  }, [selectedListingId])
+
+  // When selected session changes, populate draft from existing attendance records
+  useEffect(() => {
+    if (!selectedListingId || !selectedSessionId) {
+      setSessionDraft({})
+      return undefined
+    }
+
+    const currentRecords = sessionAttendanceRecords.filter(
+      (r) => String(r.sessionId) === String(selectedSessionId)
+    )
+    const initialMap = {}
+    for (const r of currentRecords) {
+      if (r.studentUid) {
+        initialMap[r.studentUid] = r.status
+      }
+    }
+    setSessionDraft(initialMap)
+  }, [selectedListingId, selectedSessionId, sessionAttendanceRecords])
+
+  // Handle setting status for a student in session mode
+  const setSessionStudentStatus = (studentUid, status) => {
+    setSessionDraft((prev) => ({
+      ...prev,
+      [studentUid]: status,
+    }))
+    setNotice('')
+  }
+
+  // Save session attendance
+  const saveSessionAttendance = async () => {
+    if (!selectedListingId || !selectedSessionId) return
+    setSessionSaving(true)
+    setError('')
+    setNotice('')
+
+    try {
+      // Build records payload
+      const recordsToSave = []
+      for (const student of enrolledStudents) {
+        const status = sessionDraft[student.studentUid]
+        if (status) {
+          recordsToSave.push({
+            studentUid: student.studentUid,
+            studentName: student.studentName || 'Student',
+            status,
+          })
+        }
+      }
+
+      if (recordsToSave.length === 0) {
+        setError('Please mark at least one student before saving.')
+        setSessionSaving(false)
+        return
+      }
+
+      await api.post(`/course-management/${encodeURIComponent(selectedListingId)}/attendance`, {
+        sessionId: selectedSessionId,
+        records: recordsToSave,
+      })
+
+      // Refresh attendance records
+      const { data: refreshed } = await api.get(`/course-management/${encodeURIComponent(selectedListingId)}/attendance`)
+      setSessionAttendanceRecords(refreshed.records || [])
+      setNotice(`Attendance saved for ${recordsToSave.length} student${recordsToSave.length === 1 ? '' : 's'}.`)
+    } catch (reqErr) {
+      setError(reqErr.response?.data?.message || 'Could not save session attendance.')
+    } finally {
+      setSessionSaving(false)
+    }
+  }
+
+  // Export session attendance CSV
+  const handleExportSessionCSV = async () => {
+    if (!selectedListingId) return
+    setSessionExporting(true)
+    try {
+      const response = await api.get(
+        `/course-management/${encodeURIComponent(selectedListingId)}/attendance/export`,
+        {
+          params: selectedSessionId ? { sessionId: selectedSessionId } : {},
+          responseType: 'blob',
+        }
+      )
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `teachos-attendance-${selectedListingId}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not export attendance CSV.')
+    } finally {
+      setSessionExporting(false)
+    }
+  }
+
+  // Create a new session
+  const handleCreateNewSession = async (e) => {
+    e.preventDefault()
+    if (!selectedListingId) return
+    if (!newSessionData.title.trim()) {
+      setError('Please provide a session title.')
+      return
+    }
+
+    try {
+      const { data: created } = await api.post(
+        `/course-management/${encodeURIComponent(selectedListingId)}/live-sessions`,
+        {
+          title: newSessionData.title.trim(),
+          scheduledAt: new Date(newSessionData.scheduledAt).toISOString(),
+          meetLink: newSessionData.meetLink.trim(),
+          status: 'scheduled',
+        }
+      )
+      setLiveSessions((prev) => [created.session, ...prev])
+      setSelectedSessionId(String(created.session._id))
+      setNewSessionOpen(false)
+      setNewSessionData({
+        title: '',
+        scheduledAt: new Date().toISOString().slice(0, 16),
+        meetLink: '',
+      })
+      setNotice('New live session created.')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not create new session.')
+    }
+  }
+
+  // Filter students for session view
+  const searchLower = sessionSearch.trim().toLowerCase()
+  const visibleEnrolledStudents = enrolledStudents.filter((student) => {
+    const matchesSearch = !searchLower || (student.studentName || '').toLowerCase().includes(searchLower)
+    const currentStatus = sessionDraft[student.studentUid] || null
+    if (sessionStatusFilter === 'all') return matchesSearch
+    if (sessionStatusFilter === 'unrecorded') return matchesSearch && !currentStatus
+    return matchesSearch && currentStatus === sessionStatusFilter
+  })
+
+  // Session counts
+  const sessionCounts = enrolledStudents.reduce((acc, s) => {
+    const st = sessionDraft[s.studentUid]
+    if (st === 'present') acc.present += 1
+    else if (st === 'absent') acc.absent += 1
+    else if (st === 'late') acc.late += 1
+    else if (st === 'excused') acc.excused += 1
+    return acc
+  }, { present: 0, absent: 0, late: 0, excused: 0 })
+
+  const markedSessionCount = sessionCounts.present + sessionCounts.absent + sessionCounts.late + sessionCounts.excused
+  const eligibleSessionCount = markedSessionCount - sessionCounts.excused
+  const sessionAttendanceRate = eligibleSessionCount > 0
+    ? Math.round(((sessionCounts.present + sessionCounts.late) / eligibleSessionCount) * 100)
+    : 0
+
+  // Selected session object
+  const activeSessionObj = liveSessions.find((s) => String(s._id) === String(selectedSessionId))
+  const selectedListingObj = listings.find((l) => String(l._id) === String(selectedListingId))
+
+  // ── LEGACY CLASS HELPERS ──
   const selectedClass = classes.find((item) => item.id === classId)
   const selectedDateRecord = records.find((record) => record.classId === classId && record.date === date)
   const classHistory = []
@@ -278,49 +529,9 @@ function AttendancePage() {
     if (item.status === 'present') counts.present += 1
     if (item.status === 'absent') counts.absent += 1
     if (item.status === 'late') counts.late += 1
+    if (item.status === 'excused') counts.excused += 1
     return counts
-  }, { present: 0, absent: 0, late: 0 })
-  const studentStats = new Map()
-  for (const record of classHistory) {
-    for (const item of record.records || []) {
-      if (!item.status) continue
-      const stats = studentStats.get(item.studentId) || { attended: 0, marked: 0, absences: 0 }
-      stats.marked += 1
-      if (item.status === 'present' || item.status === 'late') stats.attended += 1
-      if (item.status === 'absent') stats.absences += 1
-      studentStats.set(item.studentId, stats)
-    }
-  }
-  const percentages = (selectedClass?.students || []).flatMap((student) => {
-    const stats = studentStats.get(student.id)
-    return stats?.marked ? [Math.round((stats.attended / stats.marked) * 100)] : []
-  })
-  const average = percentages.length ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length) : null
-  const atRiskStudents = (selectedClass?.students || []).flatMap((student) => {
-    const stats = studentStats.get(student.id)
-    if (!stats?.marked) return []
-    const percent = Math.round((stats.attended / stats.marked) * 100)
-    return percent < 85 ? [{ ...student, percent, absences: stats.absences }] : []
-  }).sort((first, second) => first.percent - second.percent)
-
-  useEffect(() => {
-    let current = true
-    Promise.all([
-      api.get(`/classes/${encodeURIComponent(uid)}`),
-      api.get(`/attendance/${encodeURIComponent(uid)}`),
-    ]).then(([classResponse, attendanceResponse]) => {
-      if (!current) return
-      const nextClasses = classResponse.data.classes
-      setClasses(nextClasses)
-      setRecords(attendanceResponse.data.attendanceRecords)
-      setClassId((selectedId) => selectedId && nextClasses.some((item) => item.id === selectedId) ? selectedId : nextClasses[0]?.id || '')
-    }).catch((requestError) => {
-      if (current) setError(requestError.response?.data?.message || 'Could not load attendance data.')
-    }).finally(() => {
-      if (current) setLoading(false)
-    })
-    return () => { current = false }
-  }, [uid])
+  }, { present: 0, absent: 0, late: 0, excused: 0 })
 
   const setStatus = (studentId, status) => {
     setAttendanceDraft({
@@ -351,46 +562,573 @@ function AttendancePage() {
     }
   }
 
-  return <WorkspaceFrame title="Attendance Dashboard" description="Take attendance, review class trends, and identify students who may need support." onQuickAction={() => setQuickOpen(true)}>
-    <ResultBanner error={error} notice={notice} />
-    <div className="attendance-toolbar">
-      <label><span>Class</span><select value={classId} onChange={(event) => setClassId(event.target.value)} disabled={!classes.length || saving}>{classes.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>
-      <label><span>Attendance date</span><input type="date" value={date} onChange={(event) => { setDate(event.target.value); setAttendanceDraft(null) }} disabled={saving} /></label>
-      <button className="workspace-primary" type="button" onClick={saveAttendance} disabled={saving || loading || !selectedClass}>{saving ? 'Saving...' : 'Save attendance'}</button>
-    </div>
-    {loading ? <p className="workspace-empty">Loading attendance dashboard...</p> : !selectedClass ? <p className="workspace-empty">Create a class and enroll students to start taking attendance.</p> : <>
-      <div className="attendance-date-heading"><div><span>Daily attendance</span><h2>{selectedClass.title}</h2><p>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p></div><span className="attendance-session-tag">{selectedDateRecord ? 'Record saved' : 'Not submitted'}</span></div>
-      <div className="attendance-dashboard-grid">
-        <section className="workspace-card attendance-roster-card">
-          <header className="attendance-card-heading"><div><h2>Class roster</h2><span>{selectedClass.students?.length || 0} students</span></div><label className="attendance-search"><FiSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a student" aria-label="Find a student" /></label></header>
-          <div className="attendance-roster-scroll"><table className="attendance-roster"><thead><tr><th>Student</th><th>Attendance status</th></tr></thead><tbody>
-            {visibleStudents.map((student) => {
-              const status = statuses.get(student.id)
-              const stat = studentStats.get(student.id)
-              const initials = student.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
-              return <tr key={student.id} className={status === 'absent' ? 'is-absent' : ''}>
-                <td><div className="attendance-student-name"><span>{initials}</span><div><strong>{student.name}</strong><small>{stat?.absences ? `${stat.absences} absence${stat.absences === 1 ? '' : 's'} this term` : student.id}</small></div></div></td>
-                <td><div className="attendance-status-controls" role="group" aria-label={`Attendance status for ${student.name}`}>
-                  {['present', 'absent', 'late'].map((value) => <button type="button" key={value} className={`${value}${status === value ? ' selected' : ''}`} aria-pressed={status === value} onClick={() => setStatus(student.id, value)} disabled={saving}>{value === 'present' ? <FiCheck /> : value === 'late' ? <FiClock /> : <FiX />}{value}</button>)}
-                </div></td>
-              </tr>
-            })}
-          </tbody></table>{!visibleStudents.length && <p className="workspace-empty">{selectedClass.students?.length ? 'No students match your search.' : 'No students are enrolled in this class.'}</p>}</div>
-          <footer className="attendance-roster-footer"><span>{statusCounts.present + statusCounts.absent + statusCounts.late}/{attendance.length} marked · {statusCounts.present} present · {statusCounts.absent} absent · {statusCounts.late} late</span><button className="workspace-secondary" type="button" onClick={() => { setAttendanceDraft({ classId, date, records: attendance.map((item) => ({ ...item, status: 'present' })) }); setNotice('') }} disabled={saving}>Mark all present</button></footer>
-        </section>
-        <section className="workspace-card attendance-overview-card">
-          <header><div><h2>Class overview</h2><p>Average attendance across saved sessions</p></div><FiCalendar /></header>
-          <div className="attendance-average" style={{ '--attendance-value': `${average ?? 0}%` }}><div><strong>{average === null ? '—' : `${average}%`}</strong><span>Average</span></div></div>
-          <div className="attendance-today-stats"><article><span>Present today</span><strong>{statusCounts.present}</strong></article><article><span>Absent today</span><strong>{statusCounts.absent}</strong></article></div>
-        </section>
-        <section className="workspace-card attendance-risk-card">
-          <header><div><h2><FiAlertTriangle /> At-risk students</h2><p>Below 85% attendance this term</p></div><span>{atRiskStudents.length}</span></header>
-          {atRiskStudents.length ? <ul>{atRiskStudents.map((student) => <li key={student.id}><div><strong>{student.name}</strong><small>{student.absences} absence{student.absences === 1 ? '' : 's'}</small></div><span>{student.percent}%</span></li>)}</ul> : <p className="attendance-risk-empty">{records.some((record) => record.classId === classId) ? 'No students are currently below the attendance threshold.' : 'Save attendance sessions to see students who may need support.'}</p>}
-        </section>
-      </div>
-    </>}
-    {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
-  </WorkspaceFrame>
+  return (
+    <WorkspaceFrame title="Attendance Dashboard" description="Take live class session attendance, review course rosters, and track student trends." onQuickAction={() => setQuickOpen(true)}>
+      <ResultBanner error={error} notice={notice} />
+
+      {/* Tab Switcher */}
+      <nav className="attendance-mode-tabs" aria-label="Attendance Mode">
+        <button
+          type="button"
+          className={`attendance-mode-tab${tab === 'sessions' ? ' active' : ''}`}
+          onClick={() => { setTab('sessions'); setError(''); setNotice('') }}
+        >
+          <FiBookOpen /> Course Cohort Sessions ({listings.length})
+        </button>
+        <button
+          type="button"
+          className={`attendance-mode-tab${tab === 'classes' ? ' active' : ''}`}
+          onClick={() => { setTab('classes'); setError(''); setNotice('') }}
+        >
+          <FiUsers /> Classroom Roster (Legacy)
+        </button>
+      </nav>
+
+      {/* ── COURSE SESSIONS MODE ── */}
+      {tab === 'sessions' && (
+        <>
+          <div className="attendance-toolbar" style={{ flexWrap: 'wrap', gap: '10px' }}>
+            {/* Listing Selector */}
+            <label style={{ minWidth: '220px', flex: '1 1 200px' }}>
+              <span>Course &amp; Batch</span>
+              <select
+                value={selectedListingId}
+                onChange={(e) => setSelectedListingId(e.target.value)}
+                disabled={!listings.length || sessionsLoading || sessionSaving}
+              >
+                {listings.map((item) => (
+                  <option value={String(item._id)} key={String(item._id)}>
+                    {item.courseName ? `${item.courseName} — ${item.name}` : item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* Session Selector */}
+            <label style={{ minWidth: '240px', flex: '1 1 220px' }}>
+              <span>Class / Live Session</span>
+              <select
+                value={selectedSessionId}
+                onChange={(e) => setSelectedSessionId(e.target.value)}
+                disabled={!liveSessions.length || sessionsLoading || sessionSaving}
+              >
+                {liveSessions.map((session) => {
+                  const sDate = session.scheduledAt ? new Date(session.scheduledAt).toLocaleDateString() : 'No date'
+                  return (
+                    <option value={String(session._id)} key={String(session._id)}>
+                      {sDate} · {session.title}
+                    </option>
+                  )
+                })}
+              </select>
+            </label>
+
+            <button
+              className="workspace-secondary"
+              type="button"
+              onClick={() => setNewSessionOpen((prev) => !prev)}
+              disabled={!selectedListingId || sessionSaving}
+              style={{ minHeight: '38px', padding: '0 12px' }}
+            >
+              <FiPlus /> New Session
+            </button>
+
+            <button
+              className="workspace-secondary"
+              type="button"
+              onClick={handleExportSessionCSV}
+              disabled={!selectedListingId || sessionExporting}
+              style={{ minHeight: '38px', padding: '0 12px' }}
+            >
+              <FiDownload /> {sessionExporting ? 'Exporting...' : 'Export CSV'}
+            </button>
+
+            <button
+              className="workspace-primary"
+              type="button"
+              onClick={saveSessionAttendance}
+              disabled={sessionSaving || sessionsLoading || !selectedSessionId || !enrolledStudents.length}
+              style={{ minHeight: '38px', padding: '0 16px' }}
+            >
+              {sessionSaving ? 'Saving...' : 'Save Attendance'}
+            </button>
+          </div>
+
+          {/* New Session Inline Form */}
+          {newSessionOpen && (
+            <form onSubmit={handleCreateNewSession} style={{
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: '8px',
+              padding: '16px',
+              marginBottom: '20px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '12px',
+              alignItems: 'flex-end',
+            }}>
+              <label style={{ display: 'grid', gap: '4px', fontSize: '11px', fontWeight: 600, flex: '1 1 200px' }}>
+                <span>Session Title / Topic *</span>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Chapter 4: Calculus Review"
+                  value={newSessionData.title}
+                  onChange={(e) => setNewSessionData((d) => ({ ...d, title: e.target.value }))}
+                  style={{ padding: '7px 10px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '4px', fontSize: '11px', fontWeight: 600, width: '190px' }}>
+                <span>Date &amp; Time *</span>
+                <input
+                  type="datetime-local"
+                  required
+                  value={newSessionData.scheduledAt}
+                  onChange={(e) => setNewSessionData((d) => ({ ...d, scheduledAt: e.target.value }))}
+                  style={{ padding: '6px 10px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '4px', fontSize: '11px', fontWeight: 600, flex: '1 1 180px' }}>
+                <span>Google Meet Link (Optional)</span>
+                <input
+                  type="url"
+                  placeholder="https://meet.google.com/..."
+                  value={newSessionData.meetLink}
+                  onChange={(e) => setNewSessionData((d) => ({ ...d, meetLink: e.target.value }))}
+                  style={{ padding: '7px 10px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                />
+              </label>
+
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button type="submit" className="workspace-primary" style={{ minHeight: '34px', padding: '0 12px' }}>
+                  Create
+                </button>
+                <button type="button" className="workspace-secondary" onClick={() => setNewSessionOpen(false)} style={{ minHeight: '34px', padding: '0 10px' }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          {sessionsLoading ? (
+            <p className="workspace-empty">Loading course attendance...</p>
+          ) : !selectedListingObj ? (
+            <p className="workspace-empty">You have no course listings yet. Create a course to manage attendance.</p>
+          ) : !activeSessionObj ? (
+            <div className="workspace-card" style={{ padding: '30px', textAlign: 'center' }}>
+              <FiCalendar style={{ fontSize: '32px', color: '#94a3b8', marginBottom: '10px' }} />
+              <h3 style={{ margin: '0 0 6px', fontSize: '16px', color: '#1e293b' }}>No live sessions scheduled</h3>
+              <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: '13px' }}>
+                Schedule a session for {selectedListingObj.name} to take attendance.
+              </p>
+              <button
+                className="workspace-primary"
+                type="button"
+                onClick={() => setNewSessionOpen(true)}
+              >
+                <FiPlus /> Schedule First Session
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Session Header Info */}
+              <div className="attendance-date-heading">
+                <div>
+                  <span>Course Live Session</span>
+                  <h2>{activeSessionObj.title}</h2>
+                  <p>
+                    {activeSessionObj.scheduledAt
+                      ? new Date(activeSessionObj.scheduledAt).toLocaleDateString(undefined, {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })
+                      : 'Scheduled session'}
+                    {activeSessionObj.meetLink && (
+                      <span style={{ marginLeft: '10px' }}>
+                        <a href={activeSessionObj.meetLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                          <FiExternalLink /> Open Meet
+                        </a>
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <span className="attendance-session-tag">
+                  {markedSessionCount > 0 ? `${markedSessionCount} Marked` : 'Not submitted'}
+                </span>
+              </div>
+
+              {/* Grid with Roster + Stats */}
+              <div className="attendance-dashboard-grid">
+                {/* Roster Card */}
+                <section className="workspace-card attendance-roster-card">
+                  <header className="attendance-card-heading">
+                    <div>
+                      <h2>Student Roster</h2>
+                      <span>{enrolledStudents.length} enrolled students</span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <select
+                        value={sessionStatusFilter}
+                        onChange={(e) => setSessionStatusFilter(e.target.value)}
+                        style={{ padding: '4px 8px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '10px' }}
+                      >
+                        <option value="all">All</option>
+                        <option value="unrecorded">Unrecorded</option>
+                        <option value="present">Present</option>
+                        <option value="absent">Absent</option>
+                        <option value="late">Late</option>
+                        <option value="excused">Excused</option>
+                      </select>
+
+                      <label className="attendance-search">
+                        <FiSearch />
+                        <input
+                          value={sessionSearch}
+                          onChange={(e) => setSessionSearch(e.target.value)}
+                          placeholder="Search student..."
+                          aria-label="Find a student"
+                        />
+                      </label>
+                    </div>
+                  </header>
+
+                  <div className="attendance-roster-scroll">
+                    <table className="attendance-roster">
+                      <thead>
+                        <tr>
+                          <th>Student</th>
+                          <th style={{ textAlign: 'right' }}>Attendance Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleEnrolledStudents.map((student) => {
+                          const status = sessionDraft[student.studentUid] || null
+                          const sName = student.studentName || 'Student'
+                          const initials = sName.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase()
+                          return (
+                            <tr key={student.studentUid} className={status === 'absent' ? 'is-absent' : ''}>
+                              <td>
+                                <div className="attendance-student-name">
+                                  <span>{initials}</span>
+                                  <div>
+                                    <strong>{sName}</strong>
+                                    <small>{student.studentEmail || student.studentUid}</small>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="attendance-status-controls" role="group" aria-label={`Status for ${sName}`}>
+                                  {['present', 'absent', 'late', 'excused'].map((val) => (
+                                    <button
+                                      type="button"
+                                      key={val}
+                                      className={`${val}${status === val ? ' selected' : ''}`}
+                                      aria-pressed={status === val}
+                                      onClick={() => setSessionStudentStatus(student.studentUid, val)}
+                                      disabled={sessionSaving}
+                                    >
+                                      {val === 'present' ? <FiCheck /> : val === 'late' ? <FiClock /> : val === 'excused' ? <FiCheckCircle /> : <FiX />}
+                                      {val}
+                                    </button>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    {!visibleEnrolledStudents.length && (
+                      <p className="workspace-empty">
+                        {enrolledStudents.length ? 'No students match your filter.' : 'No students are enrolled in this course yet.'}
+                      </p>
+                    )}
+                  </div>
+
+                  <footer className="attendance-roster-footer">
+                    <span>
+                      {markedSessionCount}/{enrolledStudents.length} marked · {sessionCounts.present} present · {sessionCounts.absent} absent · {sessionCounts.late} late · {sessionCounts.excused} excused
+                    </span>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        className="workspace-secondary"
+                        type="button"
+                        onClick={() => {
+                          const allP = {}
+                          for (const s of enrolledStudents) allP[s.studentUid] = 'present'
+                          setSessionDraft(allP)
+                        }}
+                        disabled={sessionSaving || !enrolledStudents.length}
+                      >
+                        Mark all present
+                      </button>
+                      <button
+                        className="workspace-secondary"
+                        type="button"
+                        onClick={() => {
+                          const filled = { ...sessionDraft }
+                          for (const s of enrolledStudents) {
+                            if (!filled[s.studentUid]) filled[s.studentUid] = 'absent'
+                          }
+                          setSessionDraft(filled)
+                        }}
+                        disabled={sessionSaving || !enrolledStudents.length}
+                      >
+                        Unmarked absent
+                      </button>
+                    </div>
+                  </footer>
+                </section>
+
+                {/* Session Overview Stats */}
+                <section className="workspace-card attendance-overview-card">
+                  <header>
+                    <div>
+                      <h2>Session Rate</h2>
+                      <p>Present + Late over eligible students</p>
+                    </div>
+                    <FiCalendar />
+                  </header>
+
+                  <div className="attendance-average" style={{ '--attendance-value': `${sessionAttendanceRate}%` }}>
+                    <div>
+                      <strong>{eligibleSessionCount > 0 ? `${sessionAttendanceRate}%` : '—'}</strong>
+                      <span>Rate</span>
+                    </div>
+                  </div>
+
+                  <div className="attendance-today-stats">
+                    <article>
+                      <span>Present</span>
+                      <strong style={{ color: '#15803d' }}>{sessionCounts.present}</strong>
+                    </article>
+                    <article>
+                      <span>Absent</span>
+                      <strong style={{ color: '#b91c1c' }}>{sessionCounts.absent}</strong>
+                    </article>
+                    <article style={{ borderTop: '1px solid #e5e9eb', paddingTop: '6px' }}>
+                      <span>Late</span>
+                      <strong style={{ color: '#b45309' }}>{sessionCounts.late}</strong>
+                    </article>
+                    <article style={{ borderTop: '1px solid #e5e9eb', paddingTop: '6px' }}>
+                      <span>Excused</span>
+                      <strong style={{ color: '#6d28d9' }}>{sessionCounts.excused}</strong>
+                    </article>
+                  </div>
+                </section>
+              </div>
+
+              {/* Course Attendance History Table */}
+              <section className="workspace-card" style={{ marginTop: '24px', padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <div>
+                    <h2 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 4px', color: '#1e293b' }}>
+                      Course Session History
+                    </h2>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                      All recorded sessions for this course
+                    </p>
+                  </div>
+                  <button
+                    className="workspace-secondary"
+                    type="button"
+                    onClick={handleExportSessionCSV}
+                    style={{ fontSize: '11px', padding: '6px 12px' }}
+                  >
+                    <FiDownload /> Export Course CSV
+                  </button>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #edf0f2', color: '#64748b', fontSize: '10px', textTransform: 'uppercase' }}>
+                        <th style={{ padding: '8px 10px' }}>Date</th>
+                        <th style={{ padding: '8px 10px' }}>Session Topic</th>
+                        <th style={{ padding: '8px 10px' }}>Marked</th>
+                        <th style={{ padding: '8px 10px' }}>Present</th>
+                        <th style={{ padding: '8px 10px' }}>Absent</th>
+                        <th style={{ padding: '8px 10px' }}>Late</th>
+                        <th style={{ padding: '8px 10px' }}>Excused</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {liveSessions.map((session) => {
+                        const sRecords = sessionAttendanceRecords.filter((r) => String(r.sessionId) === String(session._id))
+                        const sPresent = sRecords.filter((r) => r.status === 'present').length
+                        const sAbsent = sRecords.filter((r) => r.status === 'absent').length
+                        const sLate = sRecords.filter((r) => r.status === 'late').length
+                        const sExcused = sRecords.filter((r) => r.status === 'excused').length
+                        const sDate = session.scheduledAt ? new Date(session.scheduledAt).toLocaleDateString() : '—'
+                        const isSelected = String(session._id) === String(selectedSessionId)
+
+                        return (
+                          <tr key={String(session._id)} style={{ borderBottom: '1px solid #f8fafc', background: isSelected ? '#f8f7fc' : 'transparent' }}>
+                            <td style={{ padding: '8px 10px', color: '#475569' }}>{sDate}</td>
+                            <td style={{ padding: '8px 10px', fontWeight: 600, color: '#1e293b' }}>{session.title}</td>
+                            <td style={{ padding: '8px 10px' }}>{sRecords.length}</td>
+                            <td style={{ padding: '8px 10px', color: '#15803d', fontWeight: 600 }}>{sPresent}</td>
+                            <td style={{ padding: '8px 10px', color: '#b91c1c' }}>{sAbsent}</td>
+                            <td style={{ padding: '8px 10px', color: '#b45309' }}>{sLate}</td>
+                            <td style={{ padding: '8px 10px', color: '#6d28d9' }}>{sExcused}</td>
+                            <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                              <button
+                                type="button"
+                                className="workspace-secondary"
+                                onClick={() => setSelectedSessionId(String(session._id))}
+                                style={{ padding: '3px 8px', fontSize: '10px' }}
+                              >
+                                <FiEdit2 /> {isSelected ? 'Editing' : 'Select'}
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── LEGACY CLASSROOM MODE ── */}
+      {tab === 'classes' && (
+        <>
+          <div className="attendance-toolbar">
+            <label>
+              <span>Class</span>
+              <select value={classId} onChange={(event) => setClassId(event.target.value)} disabled={!classes.length || saving}>
+                {classes.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Attendance date</span>
+              <input type="date" value={date} onChange={(event) => { setDate(event.target.value); setAttendanceDraft(null) }} disabled={saving} />
+            </label>
+            <button className="workspace-primary" type="button" onClick={saveAttendance} disabled={saving || loading || !selectedClass}>
+              {saving ? 'Saving...' : 'Save attendance'}
+            </button>
+          </div>
+
+          {loading ? (
+            <p className="workspace-empty">Loading attendance dashboard...</p>
+          ) : !selectedClass ? (
+            <p className="workspace-empty">Create a class and enroll students to start taking attendance.</p>
+          ) : (
+            <>
+              <div className="attendance-date-heading">
+                <div>
+                  <span>Daily attendance</span>
+                  <h2>{selectedClass.title}</h2>
+                  <p>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                </div>
+                <span className="attendance-session-tag">{selectedDateRecord ? 'Record saved' : 'Not submitted'}</span>
+              </div>
+
+              <div className="attendance-dashboard-grid">
+                <section className="workspace-card attendance-roster-card">
+                  <header className="attendance-card-heading">
+                    <div>
+                      <h2>Class roster</h2>
+                      <span>{selectedClass.students?.length || 0} students</span>
+                    </div>
+                    <label className="attendance-search">
+                      <FiSearch />
+                      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a student" aria-label="Find a student" />
+                    </label>
+                  </header>
+
+                  <div className="attendance-roster-scroll">
+                    <table className="attendance-roster">
+                      <thead>
+                        <tr><th>Student</th><th>Attendance status</th></tr>
+                      </thead>
+                      <tbody>
+                        {visibleStudents.map((student) => {
+                          const status = statuses.get(student.id)
+                          const initials = student.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+                          return (
+                            <tr key={student.id} className={status === 'absent' ? 'is-absent' : ''}>
+                              <td>
+                                <div className="attendance-student-name">
+                                  <span>{initials}</span>
+                                  <div>
+                                    <strong>{student.name}</strong>
+                                    <small>{student.id}</small>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="attendance-status-controls" role="group" aria-label={`Attendance status for ${student.name}`}>
+                                  {['present', 'absent', 'late', 'excused'].map((value) => (
+                                    <button
+                                      type="button"
+                                      key={value}
+                                      className={`${value}${status === value ? ' selected' : ''}`}
+                                      aria-pressed={status === value}
+                                      onClick={() => setStatus(student.id, value)}
+                                      disabled={saving}
+                                    >
+                                      {value === 'present' ? <FiCheck /> : value === 'late' ? <FiClock /> : value === 'excused' ? <FiCheckCircle /> : <FiX />}
+                                      {value}
+                                    </button>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    {!visibleStudents.length && (
+                      <p className="workspace-empty">{selectedClass.students?.length ? 'No students match your search.' : 'No students are enrolled in this class.'}</p>
+                    )}
+                  </div>
+
+                  <footer className="attendance-roster-footer">
+                    <span>
+                      {statusCounts.present + statusCounts.absent + statusCounts.late + statusCounts.excused}/{attendance.length} marked · {statusCounts.present} present · {statusCounts.absent} absent · {statusCounts.late} late · {statusCounts.excused} excused
+                    </span>
+                    <button
+                      className="workspace-secondary"
+                      type="button"
+                      onClick={() => { setAttendanceDraft({ classId, date, records: attendance.map((item) => ({ ...item, status: 'present' })) }); setNotice('') }}
+                      disabled={saving}
+                    >
+                      Mark all present
+                    </button>
+                  </footer>
+                </section>
+
+                <section className="workspace-card attendance-overview-card">
+                  <header>
+                    <div><h2>Class overview</h2><p>Saved attendance for selected day</p></div>
+                    <FiCalendar />
+                  </header>
+                  <div className="attendance-today-stats">
+                    <article><span>Present today</span><strong style={{ color: '#15803d' }}>{statusCounts.present}</strong></article>
+                    <article><span>Absent today</span><strong style={{ color: '#b91c1c' }}>{statusCounts.absent}</strong></article>
+                    <article style={{ borderTop: '1px solid #e5e9eb', paddingTop: '6px' }}><span>Late today</span><strong style={{ color: '#b45309' }}>{statusCounts.late}</strong></article>
+                    <article style={{ borderTop: '1px solid #e5e9eb', paddingTop: '6px' }}><span>Excused today</span><strong style={{ color: '#6d28d9' }}>{statusCounts.excused}</strong></article>
+                  </div>
+                </section>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
+    </WorkspaceFrame>
+  )
 }
 
 function localDateValue(date) {

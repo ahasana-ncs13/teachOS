@@ -676,32 +676,62 @@ export async function recordSessionAttendance({ req, listingId, sessionId, data 
   const listingObjectId = parseObjectId(listingId, 'listingId')
   const sessionObjectId = parseObjectId(sessionId, 'sessionId')
   const now = new Date()
-  const records = []
-  for (const item of data.records) {
-    records.push({
-      listingId: listingObjectId,
-      sessionId: sessionObjectId,
-      studentUid: item.studentUid,
-      studentName: item.studentName,
-      status: item.status,
-      joinedAt: item.joinedAt ? new Date(item.joinedAt) : now,
-      leftAt: item.leftAt ? new Date(item.leftAt) : null,
-      durationMinutes: item.durationMinutes || 0,
-      createdAt: now,
-    })
+
+  // Verify that the session belongs to this course listing
+  const session = await database.collection(LIVE_SESSIONS_COLLECTION).findOne({
+    _id: sessionObjectId,
+    listingId: listingObjectId,
+  })
+  if (!session) {
+    const error = new Error('Session not found for this course listing.')
+    error.status = 404
+    error.code = 'SESSION_NOT_FOUND'
+    throw error
   }
-  if (records.length) {
-    await database.collection(SESSION_ATTENDANCE_COLLECTION).insertMany(records)
+
+  const bulkOps = data.records.map((item) => {
+    const joinedAt = item.joinedAt ? new Date(item.joinedAt) : (session.scheduledAt ? new Date(session.scheduledAt) : now)
+    return {
+      updateOne: {
+        filter: {
+          listingId: listingObjectId,
+          sessionId: sessionObjectId,
+          studentUid: item.studentUid,
+        },
+        update: {
+          $set: {
+            studentName: item.studentName,
+            status: item.status,
+            joinedAt,
+            leftAt: item.leftAt ? new Date(item.leftAt) : null,
+            durationMinutes: item.durationMinutes || 0,
+            updatedAt: now,
+          },
+          $setOnInsert: {
+            listingId: listingObjectId,
+            sessionId: sessionObjectId,
+            studentUid: item.studentUid,
+            createdAt: now,
+          },
+        },
+        upsert: true,
+      },
+    }
+  })
+
+  if (bulkOps.length) {
+    await database.collection(SESSION_ATTENDANCE_COLLECTION).bulkWrite(bulkOps)
   }
+
   await writeAuditLog({
     actorUid: req.authUid,
     actorRole: req.user.role,
     action: 'RECORD_SESSION_ATTENDANCE',
     targetType: 'liveSession',
     targetId: sessionObjectId,
-    meta: { listingId, recordCount: records.length },
+    meta: { listingId, recordCount: data.records.length },
   })
-  return { message: 'Attendance recorded.', count: records.length }
+  return { message: 'Attendance recorded successfully.', count: data.records.length }
 }
 
 export async function exportSessionAttendanceCSV({ req, listingId, sessionId }) {

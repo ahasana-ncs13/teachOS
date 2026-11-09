@@ -241,6 +241,12 @@
 .attendance-status-controls button.present.selected { border-color: #b9dfc2; background: #e6f4ea; color: #137333; }
 .attendance-status-controls button.absent.selected { border-color: #f1c2bd; background: #ffdad6; color: #93000a; }
 .attendance-status-controls button.late.selected { border-color: #ffe082; background: #fff8e1; color: #a65a00; }
+.attendance-status-controls button.excused.selected { border-color: #ddd6fe; background: #ede9fe; color: #6d28d9; }
+
+.attendance-mode-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid #edf0f2; padding-bottom: 8px; }
+.attendance-mode-tab { padding: 8px 16px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--ws-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .15s ease; }
+.attendance-mode-tab:hover { background: #f8f7fc; color: var(--ws-navy); }
+.attendance-mode-tab.active { background: #ede9fe; border-color: #c4b5fd; color: #6d28d9; }
 .attendance-roster-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-top: 1px solid #edf0f2; color: var(--ws-muted); font-size: 9px; }
 .attendance-roster-footer .workspace-secondary { min-height: 32px; padding: 0 9px; font-size: 9px; white-space: nowrap; }
 .attendance-overview-card, .attendance-risk-card { min-width: 0; padding-bottom: 14px; }

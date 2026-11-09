@@ -275,21 +275,40 @@ studentRouter.get('/student/dashboard', async (req, res, next) => {
     })
     const attendanceByListing = new Map()
     for (const record of attendanceHistory) {
-      const summary = attendanceByListing.get(record.listingId) || { totalClasses: 0, attendedClasses: 0, absentClasses: 0 }
+      const summary = attendanceByListing.get(record.listingId) || {
+        totalClasses: 0,
+        attendedClasses: 0,
+        absentClasses: 0,
+        lateClasses: 0,
+        excusedClasses: 0,
+      }
       summary.totalClasses += 1
       if (record.status === 'present') summary.attendedClasses += 1
-      if (record.status === 'absent') summary.absentClasses += 1
+      else if (record.status === 'late') summary.lateClasses += 1
+      else if (record.status === 'absent') summary.absentClasses += 1
+      else if (record.status === 'excused') summary.excusedClasses += 1
       attendanceByListing.set(record.listingId, summary)
     }
     const courseAttendance = enrollments.map((enrollment) => {
-      const summary = attendanceByListing.get(String(enrollment.listingId)) || { totalClasses: 0, attendedClasses: 0, absentClasses: 0 }
+      const summary = attendanceByListing.get(String(enrollment.listingId)) || {
+        totalClasses: 0,
+        attendedClasses: 0,
+        absentClasses: 0,
+        lateClasses: 0,
+        excusedClasses: 0,
+      }
+      // Excused classes do not penalize attendance percentage (Formula: Present / Eligible * 100)
+      const eligibleClasses = summary.totalClasses - summary.excusedClasses
+      const attendancePercentage = eligibleClasses > 0
+        ? Math.round((summary.attendedClasses / eligibleClasses) * 100)
+        : (summary.totalClasses > 0 ? 100 : 0)
+
       return {
         listingId: String(enrollment.listingId),
         courseName: listingsById.get(String(enrollment.listingId))?.name || enrollment.name,
         ...summary,
-        attendancePercentage: summary.totalClasses
-          ? Math.round((summary.attendedClasses / summary.totalClasses) * 100)
-          : 0,
+        eligibleClasses,
+        attendancePercentage,
       }
     })
 
@@ -306,6 +325,8 @@ studentRouter.get('/student/dashboard', async (req, res, next) => {
           totalClasses: courseAttendance.reduce((total, item) => total + item.totalClasses, 0),
           attendedClasses: courseAttendance.reduce((total, item) => total + item.attendedClasses, 0),
           absentClasses: courseAttendance.reduce((total, item) => total + item.absentClasses, 0),
+          lateClasses: courseAttendance.reduce((total, item) => total + item.lateClasses, 0),
+          excusedClasses: courseAttendance.reduce((total, item) => total + item.excusedClasses, 0),
         },
         stats: {
           enrolledCourses: enrolledCourses.length,

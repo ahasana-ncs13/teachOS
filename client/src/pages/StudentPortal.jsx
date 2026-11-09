@@ -471,25 +471,104 @@ export function StudentClasses() {
 
 export function StudentAttendance() {
   const { dashboard, loading, error, refresh } = useStudentDashboard()
+  const [courseFilter, setCourseFilter] = useState('all')
   const attendance = dashboard?.attendance
   const courses = attendance?.courses ?? emptyList
   const history = attendance?.history ?? emptyList
+  const filteredHistory = courseFilter === 'all'
+    ? history
+    : history.filter((item) => String(item.listingId) === courseFilter)
 
   return <StudentLayout title="Attendance" description="Review your course attendance from recorded online class sessions.">
     <StudentStatus error={error} onRetry={refresh} />
     {loading ? <div className="student-state" role="status">Loading your attendance records...</div> : <>
-      <section className="student-stat-grid" aria-label="Attendance summary">
+      <section className="student-stat-grid" aria-label="Attendance summary" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
         <article><span className="student-stat-icon purple"><FiCalendar /></span><div><small>Total classes</small><strong>{attendance?.totalClasses || 0}</strong><span>Recorded sessions</span></div></article>
         <article><span className="student-stat-icon mint"><FiCheckCircle /></span><div><small>Attended</small><strong>{attendance?.attendedClasses || 0}</strong><span>Marked present</span></div></article>
         <article><span className="student-stat-icon peach"><FiClock /></span><div><small>Absent</small><strong>{attendance?.absentClasses || 0}</strong><span>Marked absent</span></div></article>
+        <article><span className="student-stat-icon purple" style={{ background: '#fef3c7', color: '#b45309' }}><FiClock /></span><div><small>Late</small><strong style={{ color: '#b45309' }}>{attendance?.lateClasses || 0}</strong><span>Late arrivals</span></div></article>
+        <article><span className="student-stat-icon mint" style={{ background: '#ede9fe', color: '#6d28d9' }}><FiCheckCircle /></span><div><small>Excused</small><strong style={{ color: '#6d28d9' }}>{attendance?.excusedClasses || 0}</strong><span>Not penalized</span></div></article>
       </section>
+
       <section className="student-panel student-fee-panel">
         <div className="student-panel-heading"><div><span className="student-eyebrow">Course summary</span><h2>Attendance by course</h2></div></div>
-        {courses.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Course</th><th>Total classes</th><th>Attended</th><th>Absent</th><th>Attendance</th></tr></thead><tbody>{courses.map((course) => <tr key={course.listingId}><td><strong>{course.courseName}</strong></td><td>{course.totalClasses}</td><td>{course.attendedClasses}</td><td>{course.absentClasses}</td><td>{course.attendancePercentage}%</td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCheckCircle /><strong>No attendance records yet</strong><span>Your attendance summary will appear after your teacher records a class session.</span></div>}
+        {courses.length ? <div className="student-table-wrap"><table className="student-table">
+          <thead>
+            <tr>
+              <th>Course</th>
+              <th>Total classes</th>
+              <th>Attended</th>
+              <th>Absent</th>
+              <th>Late</th>
+              <th>Excused</th>
+              <th>Attendance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {courses.map((course) => (
+              <tr key={course.listingId}>
+                <td><strong>{course.courseName}</strong></td>
+                <td>{course.totalClasses}</td>
+                <td style={{ color: '#15803d', fontWeight: 600 }}>{course.attendedClasses}</td>
+                <td style={{ color: '#b91c1c' }}>{course.absentClasses}</td>
+                <td style={{ color: '#b45309' }}>{course.lateClasses || 0}</td>
+                <td style={{ color: '#6d28d9' }}>{course.excusedClasses || 0}</td>
+                <td>
+                  <span style={{
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: '5px',
+                    background: course.attendancePercentage >= 75 ? '#dcfce7' : '#fee2e2',
+                    color: course.attendancePercentage >= 75 ? '#15803d' : '#b91c1c',
+                  }}>
+                    {course.attendancePercentage}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div> : <div className="student-empty-inline"><FiCheckCircle /><strong>No attendance records yet</strong><span>Your attendance summary will appear after your teacher records a class session.</span></div>}
       </section>
+
       <section className="student-panel student-fee-panel">
-        <div className="student-panel-heading"><div><span className="student-eyebrow">Session records</span><h2>Attendance history</h2></div></div>
-        {history.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Date</th><th>Course</th><th>Topic</th><th>Status</th><th>Duration</th></tr></thead><tbody>{history.map((record) => <tr key={`${record.listingId}-${record.sessionId}`}><td>{dateLabel(record.date, { month: 'short', day: 'numeric', year: 'numeric' })}</td><td>{record.courseName}</td><td>{record.topic}</td><td><span className={`student-payment-status ${record.status}`}>{record.status}</span></td><td>{record.durationMinutes ? `${record.durationMinutes} min` : '—'}</td></tr>)}</tbody></table></div> : <div className="student-empty-inline"><FiCalendar /><strong>Attendance history is empty</strong><span>Only records saved by your teacher are included; unrecorded classes are not assumed absent.</span></div>}
+        <div className="student-panel-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div><span className="student-eyebrow">Session records</span><h2>Attendance history</h2></div>
+          {courses.length > 1 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+              <span>Filter course:</span>
+              <select
+                value={courseFilter}
+                onChange={(e) => setCourseFilter(e.target.value)}
+                style={{ padding: '5px 9px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+              >
+                <option value="all">All courses</option>
+                {courses.map((c) => (
+                  <option key={c.listingId} value={c.listingId}>{c.courseName}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+        {filteredHistory.length ? <div className="student-table-wrap"><table className="student-table">
+          <thead>
+            <tr><th>Date</th><th>Course</th><th>Topic</th><th>Status</th><th>Duration</th></tr>
+          </thead>
+          <tbody>
+            {filteredHistory.map((record) => (
+              <tr key={`${record.listingId}-${record.sessionId}`}>
+                <td>{dateLabel(record.date, { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                <td>{record.courseName}</td>
+                <td>{record.topic}</td>
+                <td>
+                  <span className={`student-payment-status ${record.status}`} style={{ textTransform: 'capitalize' }}>
+                    {record.status}
+                  </span>
+                </td>
+                <td>{record.durationMinutes ? `${record.durationMinutes} min` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div> : <div className="student-empty-inline"><FiCalendar /><strong>Attendance history is empty</strong><span>Only records saved by your teacher are included; unrecorded classes are not assumed absent.</span></div>}
       </section>
     </>}
   </StudentLayout>

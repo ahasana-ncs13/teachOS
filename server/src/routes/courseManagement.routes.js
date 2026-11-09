@@ -278,8 +278,8 @@ function validateAttendanceRecords(body) {
       error.code = 'INVALID_RECORD'
       throw error
     }
-    if (!['present', 'absent', 'late'].includes(record.status)) {
-      const error = new Error('Each record must have a valid status: present, absent, or late.')
+    if (!['present', 'absent', 'late', 'excused'].includes(record.status)) {
+      const error = new Error('Each record must have a valid status: present, absent, late, or excused.')
       error.status = 400
       error.code = 'INVALID_RECORD'
       throw error
@@ -432,9 +432,16 @@ courseManagementRouter.get('/:listingId/attendance', async (req, res, next) => {
 
 courseManagementRouter.post('/:listingId/attendance', async (req, res, next) => {
   try {
-    const body = sanitizeInput(req.body, ['records'])
+    const body = sanitizeInput(req.body, ['records', 'sessionId'])
     validateAttendanceRecords(body)
-    const result = await courseManagementService.recordSessionAttendance({ req, listingId: req.params.listingId, sessionId: req.body.sessionId, data: body })
+    const sessionId = body.sessionId || req.query.sessionId
+    if (!sessionId) {
+      const error = new Error('sessionId is required to record attendance.')
+      error.status = 400
+      error.code = 'SESSION_ID_REQUIRED'
+      throw error
+    }
+    const result = await courseManagementService.recordSessionAttendance({ req, listingId: req.params.listingId, sessionId, data: body })
     res.status(201).json(result)
   } catch (error) { next(error) }
 })

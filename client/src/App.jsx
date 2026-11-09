@@ -13,6 +13,7 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminClasses from './pages/admin/AdminClasses'
 import AdminDirectory from './pages/admin/AdminDirectory'
 import AdminPayments from './pages/admin/AdminPayments'
+import AdminAttendance from './pages/admin/AdminAttendance'
 import AdminSettings from './pages/admin/AdminSettings'
 import ErrorPage from './pages/ErrorPage'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -45,6 +46,7 @@ function App() {
         <Route path="/admin/classes" element={<ProtectedRoute role="admin"><AdminClasses /></ProtectedRoute>} />
         <Route path="/admin/directory" element={<ProtectedRoute role="admin"><AdminDirectory /></ProtectedRoute>} />
         <Route path="/admin/payments" element={<ProtectedRoute role="admin"><AdminPayments /></ProtectedRoute>} />
+        <Route path="/admin/attendance" element={<ProtectedRoute role="admin"><AdminAttendance /></ProtectedRoute>} />
         <Route path="/admin/records" element={<ProtectedRoute role="admin"><Navigate to="/admin/payments" replace /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute role="admin"><AdminSettings /></ProtectedRoute>} />
         <Route path="/dashboard/attendance" element={<ProtectedRoute role="teacher"><AttendancePage /></ProtectedRoute>} />
