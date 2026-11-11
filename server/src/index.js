@@ -267,11 +267,38 @@ app.get('/api/dashboard/:uid', async (request, response) => {
   if (!validUid(uid)) return response.status(400).json({ message: 'A valid user ID is required' })
 
   try {
-    const { classList } = await ensureTeacherData(uid)
-    const classes = classList.map(({ _id, uid: _uid, createdAt, updatedAt, ...item }) => item)
     const db = getDatabase()
-    const [studentCount, earnings, recentTransactions, reservedPayouts, pendingPayouts, attendanceRecords, lessons, messages, officeHours, resources, payouts, payoutRequestCount] = await Promise.all([
-      db.collection('students').countDocuments({ uid, isSample: { $ne: true } }),
+    const { classList } = await ensureTeacherData(uid)
+    const teacherListings = await db.collection('listings')
+      .find({ teacherUid: uid, status: { $ne: 'removed' } })
+      .sort({ createdAt: -1 })
+      .toArray()
+    const listingIds = teacherListings.map((l) => l._id)
+
+    const [
+      enrollments,
+      legacyStudents,
+      earnings,
+      recentTransactions,
+      reservedPayouts,
+      pendingPayouts,
+      attendanceRecords,
+      sessionAttendanceList,
+      lessons,
+      messages,
+      officeHours,
+      resources,
+      payouts,
+      payoutRequestCount,
+    ] = await Promise.all([
+      db.collection('studentEnrollments').find({
+        $or: [
+          { teacherUid: uid },
+          ...(listingIds.length ? [{ listingId: { $in: listingIds } }] : []),
+        ],
+        status: 'active',
+      }).sort({ enrolledAt: -1, createdAt: -1 }).toArray(),
+      db.collection('students').find({ uid, isSample: { $ne: true } }).toArray(),
       getTeacherLiveEarnings(db, uid),
       db.collection('studentPayments').find({
         teacherUid: uid,
@@ -288,6 +315,7 @@ app.get('/api/dashboard/:uid', async (request, response) => {
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]).toArray(),
       db.collection('attendanceRecords').countDocuments({ uid }),
+      listingIds.length ? db.collection('sessionAttendance').find({ listingId: { $in: listingIds } }).toArray() : [],
       db.collection('lessonSessions').find({ uid }).sort({ startedAt: -1 }).limit(100).toArray(),
       db.collection('messages').countDocuments({ uid }),
       db.collection('officeHours').countDocuments({ uid }),
@@ -295,12 +323,83 @@ app.get('/api/dashboard/:uid', async (request, response) => {
       db.collection('payoutRequests').find({ uid, status: 'paid', isSample: { $ne: true } }).sort({ createdAt: -1 }).limit(5).toArray(),
       db.collection('payoutRequests').countDocuments({ uid, isSample: { $ne: true } }),
     ])
+
     const totalEarnings = earnings.net
     const pendingPayout = pendingPayouts[0]?.total || 0
     const teacher = await db.collection('users').findOne({ uid }, { projection: { payoutSettings: 1 } })
+
+    const enrollmentsByListing = new Map()
+    for (const e of enrollments) {
+      const k = String(e.listingId)
+      if (!enrollmentsByListing.has(k)) enrollmentsByListing.set(k, [])
+      enrollmentsByListing.get(k).push(e)
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const todayAttendanceMap = new Map()
+    for (const sa of sessionAttendanceList) {
+      const saDate = sa.dateStr || (sa.joinedAt ? new Date(sa.joinedAt).toISOString().slice(0, 10) : '')
+      if (saDate === todayStr && sa.studentUid) {
+        todayAttendanceMap.set(sa.studentUid, sa.status)
+      }
+    }
+
+    const mappedListings = teacherListings.map((listing) => {
+      const listingKey = String(listing._id)
+      const listingStudents = enrollmentsByListing.get(listingKey) || []
+      const scheduleDays = Array.isArray(listing.days) && listing.days.length
+        ? listing.days.join(', ')
+        : (listing.schedule || 'Weekly')
+      const startTime = listing.startTime || '10:00 AM'
+      const endTime = listing.endTime || '11:00 AM'
+      return {
+        id: listingKey,
+        title: listing.name,
+        courseName: listing.courseName || listing.name,
+        schedule: scheduleDays,
+        startTime,
+        endTime,
+        time: `${startTime} – ${endTime}`,
+        period: scheduleDays,
+        location: listing.location || 'Google Meet / Online',
+        department: listing.category || 'Online Course',
+        status: listing.status === 'active' ? 'active' : (listing.status || 'active'),
+        enrolled: listingStudents.length,
+        students: listingStudents.map((e) => {
+          const studentId = e.studentUid || String(e._id)
+          return {
+            id: studentId,
+            name: e.studentName || 'Student',
+            email: e.studentEmail || '',
+            status: todayAttendanceMap.get(studentId) || '',
+          }
+        }),
+        isListing: true,
+      }
+    })
+
+    const legacyClasses = classList.map(({ _id, uid: _uid, createdAt, updatedAt, ...item }) => item)
+    const classes = [...mappedListings, ...legacyClasses.filter((c) => !mappedListings.some((m) => m.id === c.id))]
+
+    const uniqueStudentKeys = new Set()
+    for (const e of enrollments) {
+      if (e.studentUid) uniqueStudentKeys.add(e.studentUid)
+      else if (e.studentEmail) uniqueStudentKeys.add(e.studentEmail)
+      else uniqueStudentKeys.add(String(e._id))
+    }
+    for (const s of legacyStudents) {
+      if (s.email) uniqueStudentKeys.add(s.email)
+      else if (s.studentId) uniqueStudentKeys.add(s.studentId)
+      else uniqueStudentKeys.add(s.id || String(s._id))
+    }
+    const totalStudents = Math.max(uniqueStudentKeys.size, legacyStudents.length, enrollments.length)
+    const totalAttendanceRecords = attendanceRecords + sessionAttendanceList.length
+    const activeClassesCount = classes.filter((item) => item.status === 'active' || item.status === 'live').length
+
     response.json({
       dashboard: {
         classes,
+        attendanceClassId: classes[0]?.id || null,
         earnings: {
           total: totalEarnings,
           gross: earnings.gross,
@@ -324,14 +423,14 @@ app.get('/api/dashboard/:uid', async (request, response) => {
           })),
         },
         roster: {
-          totalStudents: studentCount,
-          activeClasses: classList.filter((item) => item.status === 'active' || item.status === 'live').length,
+          totalStudents,
+          activeClasses: activeClassesCount,
         },
         stats: {
-          totalClasses: classList.length,
-          totalStudents: studentCount,
-          attendanceRecords,
-          todaysLessons: classList.filter((item) => item.status === 'active' || item.status === 'live').length,
+          totalClasses: classes.length,
+          totalStudents,
+          attendanceRecords: totalAttendanceRecords,
+          todaysLessons: activeClassesCount,
           completedLessons: lessons.filter((item) => item.status === 'completed').length,
           payoutRequests: payoutRequestCount,
           messages,
@@ -360,21 +459,92 @@ app.put('/api/dashboard/:uid/attendance', async (request, response) => {
   }
 
   try {
-      const { classList } = await ensureTeacherData(uid)
-      const selectedClass = classList.find((item) => item.id === classId)
-      if (!selectedClass) return response.status(404).json({ message: 'Class not found' })
+    const db = getDatabase()
+    const updatedAt = new Date()
+
+    let listing = null
+    if (ObjectId.isValid(classId)) {
+      listing = await db.collection('listings').findOne({
+        _id: new ObjectId(classId),
+        teacherUid: uid,
+        status: { $ne: 'removed' },
+      })
+    }
+
+    const { classList } = await ensureTeacherData(uid)
+    const selectedClass = classList.find((item) => item.id === classId)
+
+    if (!selectedClass && !listing) {
+      return response.status(404).json({ message: 'Class or course listing not found' })
+    }
 
     const submitted = new Map(attendance.map(({ studentId, status }) => [studentId, status]))
+
+    if (listing) {
+      const enrollments = await db.collection('studentEnrollments').find({
+        listingId: listing._id,
+        status: 'active',
+      }).toArray()
+
+      const attendanceRecords = db.collection('attendanceRecords')
+      const existingRecord = await attendanceRecords.findOne({ uid, classId, date }, { sort: { createdAt: -1 } })
+      const record = {
+        id: existingRecord?.id || randomUUID(),
+        uid,
+        classId,
+        listingId: listing._id,
+        records: [...submitted].map(([studentId, status]) => ({ studentId, status })),
+        date,
+        createdAt: updatedAt,
+      }
+      if (existingRecord) await attendanceRecords.updateOne({ _id: existingRecord._id }, { $set: record })
+      else await attendanceRecords.insertOne(record)
+
+      const bulkOps = []
+      for (const [studentUid, status] of submitted) {
+        if (!status) continue
+        const studentInfo = enrollments.find((e) => (e.studentUid || String(e._id)) === studentUid)
+        bulkOps.push({
+          updateOne: {
+            filter: {
+              listingId: listing._id,
+              dateStr: date,
+              studentUid,
+            },
+            update: {
+              $set: {
+                studentName: studentInfo?.studentName || 'Student',
+                studentEmail: studentInfo?.studentEmail || '',
+                status,
+                joinedAt: new Date(`${date}T10:00:00Z`),
+                updatedAt,
+              },
+              $setOnInsert: {
+                listingId: listing._id,
+                dateStr: date,
+                studentUid,
+                createdAt: updatedAt,
+              },
+            },
+            upsert: true,
+          },
+        })
+      }
+      if (bulkOps.length) {
+        await db.collection('sessionAttendance').bulkWrite(bulkOps)
+      }
+
+      return response.json({ message: 'Attendance saved', updatedAt })
+    }
+
     if (submitted.size !== attendance.length || [...submitted.keys()].some((studentId) => !selectedClass.students.some((student) => student.id === studentId))) {
       return response.status(400).json({ message: 'Attendance contains duplicate or unknown students' })
     }
-    const updatedAt = new Date()
     const updatedStudents = selectedClass.students.map((student) => submitted.has(student.id) ? { ...student, status: submitted.get(student.id) } : student)
-    const database = getDatabase()
     if (date === new Date().toISOString().slice(0, 10)) {
-      await database.collection('classes').updateOne({ uid, id: classId }, { $set: { students: updatedStudents, updatedAt } })
+      await db.collection('classes').updateOne({ uid, id: classId }, { $set: { students: updatedStudents, updatedAt } })
     }
-    const attendanceRecords = database.collection('attendanceRecords')
+    const attendanceRecords = db.collection('attendanceRecords')
     const existingRecord = await attendanceRecords.findOne({ uid, classId, date }, { sort: { createdAt: -1 } })
     const record = {
       id: existingRecord?.id || randomUUID(), uid, classId,
@@ -413,8 +583,37 @@ app.get('/api/classes/:uid', async (request, response) => {
   const { uid } = request.params
   if (!validUid(uid)) return response.status(400).json({ message: 'A valid user ID is required' })
   try {
+    const db = getDatabase()
     const { classList } = await ensureTeacherData(uid)
-    response.json({ classes: classList.map(({ _id, uid: _uid, ...item }) => item) })
+    const teacherListings = await db.collection('listings')
+      .find({ teacherUid: uid, status: { $ne: 'removed' } })
+      .sort({ createdAt: -1 })
+      .toArray()
+    const listingIds = teacherListings.map((l) => l._id)
+    const enrollments = listingIds.length
+      ? await db.collection('studentEnrollments').find({ listingId: { $in: listingIds }, status: 'active' }).toArray()
+      : []
+    const enrollmentsByListing = new Map()
+    for (const e of enrollments) {
+      const k = String(e.listingId)
+      enrollmentsByListing.set(k, (enrollmentsByListing.get(k) || 0) + 1)
+    }
+    const mappedListings = teacherListings.map((listing) => ({
+      id: String(listing._id),
+      title: listing.name,
+      courseName: listing.courseName || listing.name,
+      schedule: Array.isArray(listing.days) && listing.days.length ? listing.days.join(', ') : (listing.schedule || 'Weekly'),
+      startTime: listing.startTime || '10:00 AM',
+      endTime: listing.endTime || '11:00 AM',
+      location: listing.location || 'Google Meet / Online',
+      department: listing.category || 'General',
+      enrolled: enrollmentsByListing.get(String(listing._id)) || 0,
+      status: listing.status === 'active' ? 'active' : (listing.status || 'active'),
+      isListing: true,
+    }))
+    const legacyClasses = classList.map(({ _id, uid: _uid, ...item }) => item)
+    const classes = [...mappedListings, ...legacyClasses.filter((c) => !mappedListings.some((m) => m.id === c.id))]
+    response.json({ classes })
   } catch (error) {
     console.error('Unable to load classes:', error.message)
     response.status(500).json({ message: 'Unable to load classes' })
@@ -495,25 +694,120 @@ app.get('/api/students/:uid', async (request, response) => {
   try {
     await ensureTeacherData(uid)
     const db = getDatabase()
-    const [students, attendance] = await Promise.all([
+
+    const teacherListings = await db.collection('listings')
+      .find({ teacherUid: uid, status: { $ne: 'removed' } })
+      .toArray()
+    const listingIds = teacherListings.map((l) => l._id)
+
+    const [enrollments, legacyStudents, sessionAttendance, legacyAttendance] = await Promise.all([
+      db.collection('studentEnrollments').find({
+        $or: [
+          { teacherUid: uid },
+          ...(listingIds.length ? [{ listingId: { $in: listingIds } }] : []),
+        ],
+        status: 'active',
+      }).sort({ enrolledAt: -1, createdAt: -1 }).toArray(),
       db.collection('students').find({ uid, isSample: { $ne: true } }).sort({ name: 1 }).toArray(),
+      listingIds.length ? db.collection('sessionAttendance').find({ listingId: { $in: listingIds } }).toArray() : [],
       db.collection('attendanceRecords').find({ uid }).toArray(),
     ])
-    const attendanceByStudent = new Map()
-    for (const session of attendance) {
-      for (const record of session.records) {
-        const counts = attendanceByStudent.get(record.studentId) || { present: 0, marked: 0 }
+
+    const attendanceStats = new Map()
+    for (const session of legacyAttendance) {
+      for (const record of session.records || []) {
+        if (!record.studentId) continue
+        const counts = attendanceStats.get(record.studentId) || { present: 0, marked: 0 }
         if (record.status) {
           counts.marked += 1
           if (record.status === 'present' || record.status === 'late') counts.present += 1
         }
-        attendanceByStudent.set(record.studentId, counts)
+        attendanceStats.set(record.studentId, counts)
       }
     }
-    response.json({ students: students.map(({ _id, uid: _uid, ...student }) => {
-      const counts = attendanceByStudent.get(student.id)
-      return { ...student, attendancePercent: counts?.marked ? Math.round((counts.present / counts.marked) * 100) : student.attendancePercent || 0 }
-    }) })
+    for (const rec of sessionAttendance) {
+      if (!rec.studentUid) continue
+      const counts = attendanceStats.get(rec.studentUid) || { present: 0, marked: 0 }
+      if (rec.status) {
+        counts.marked += 1
+        if (rec.status === 'present' || rec.status === 'late') counts.present += 1
+      }
+      attendanceStats.set(rec.studentUid, counts)
+    }
+
+    const studentMap = new Map()
+
+    for (const enrollment of enrollments) {
+      const key = enrollment.studentUid || enrollment.studentEmail || String(enrollment._id)
+      if (!studentMap.has(key)) {
+        const studentIdDisplay = enrollment.studentUid
+          ? (enrollment.studentUid.length > 8 ? enrollment.studentUid.slice(-8).toUpperCase() : enrollment.studentUid)
+          : 'STU-ONLINE'
+        studentMap.set(key, {
+          id: String(enrollment._id),
+          studentUid: enrollment.studentUid,
+          studentId: studentIdDisplay,
+          name: enrollment.studentName || 'Student',
+          email: enrollment.studentEmail || '',
+          phone: enrollment.studentPhone || '',
+          department: enrollment.category || 'Online Course',
+          enrolledClasses: [],
+          attendancePercent: 0,
+          enrolledAt: enrollment.enrolledAt || enrollment.createdAt || null,
+          paymentStatus: enrollment.paymentStatus || 'paid',
+          isOnlineEnrollment: true,
+        })
+      }
+      const entry = studentMap.get(key)
+      const classIdStr = String(enrollment.listingId)
+      if (!entry.enrolledClasses.some((c) => c.id === classIdStr)) {
+        entry.enrolledClasses.push({
+          id: classIdStr,
+          title: enrollment.name || 'Course Batch',
+        })
+      }
+    }
+
+    for (const [key, student] of studentMap.entries()) {
+      const counts = attendanceStats.get(student.studentUid) || attendanceStats.get(student.id) || attendanceStats.get(key)
+      student.attendancePercent = counts?.marked
+        ? Math.round((counts.present / counts.marked) * 100)
+        : 0
+    }
+
+    for (const leg of legacyStudents) {
+      const legacyKey = leg.email || leg.studentId || leg.id
+      let matched = null
+      for (const [k, student] of studentMap.entries()) {
+        if ((leg.email && student.email && leg.email.toLowerCase() === student.email.toLowerCase()) ||
+            (leg.studentId && student.studentId === leg.studentId)) {
+          matched = student
+          break
+        }
+      }
+      if (matched) {
+        if (Array.isArray(leg.enrolledClasses)) {
+          for (const ec of leg.enrolledClasses) {
+            if (!matched.enrolledClasses.some((c) => c.id === ec.id)) {
+              matched.enrolledClasses.push(ec)
+            }
+          }
+        }
+      } else {
+        const counts = attendanceStats.get(leg.id) || attendanceStats.get(leg.studentId)
+        const computedPercent = counts?.marked
+          ? Math.round((counts.present / counts.marked) * 100)
+          : (leg.attendancePercent || 0)
+        const { _id, uid: _uid, ...studentData } = leg
+        studentMap.set(legacyKey, {
+          ...studentData,
+          attendancePercent: computedPercent,
+        })
+      }
+    }
+
+    const students = [...studentMap.values()].sort((a, b) => a.name.localeCompare(b.name))
+    response.json({ students })
   } catch (error) {
     console.error('Unable to load students:', error.message)
     response.status(500).json({ message: 'Unable to load students' })
@@ -533,8 +827,12 @@ app.post('/api/students/:uid', async (request, response) => {
     return response.status(400).json({ message: 'Provide a name, valid contact details, department, and class IDs' })
   }
   try {
+    const db = getDatabase()
     const { classList } = await ensureTeacherData(uid)
-    const enrolledClasses = classList.filter((item) => classIds.includes(item.id))
+    const teacherListings = await db.collection('listings').find({ teacherUid: uid, status: { $ne: 'removed' } }).toArray()
+    const mappedListings = teacherListings.map((l) => ({ id: String(l._id), title: l.name }))
+    const combinedClasses = [...classList, ...mappedListings]
+    const enrolledClasses = combinedClasses.filter((item) => classIds.includes(item.id))
     if (enrolledClasses.length !== new Set(classIds).size) return response.status(400).json({ message: 'One or more selected classes do not exist' })
     const now = new Date()
     const record = {
@@ -543,9 +841,9 @@ app.post('/api/students/:uid', async (request, response) => {
       classIds, enrolledClasses: enrolledClasses.map(({ id, title }) => ({ id, title })),
       attendancePercent: 0, createdAt: now, updatedAt: now,
     }
-    await getDatabase().collection('students').insertOne(record)
+    await db.collection('students').insertOne(record)
     for (const item of enrolledClasses) {
-      await getDatabase().collection('classes').updateOne(
+      await db.collection('classes').updateOne(
         { uid, id: item.id },
         { $push: { students: { id: record.id, name: record.name, status: null } }, $inc: { enrolled: 1 }, $set: { updatedAt: now } },
       )

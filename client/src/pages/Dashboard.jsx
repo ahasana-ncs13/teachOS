@@ -13,6 +13,7 @@ function Dashboard() {
   const [subscription, setSubscription] = useState(null)
   const [attendance, setAttendance] = useState([])
   const [search, setSearch] = useState('')
+  const [selectedClassId, setSelectedClassId] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -21,20 +22,22 @@ function Dashboard() {
   const [subscriptionError, setSubscriptionError] = useState('')
   const [subscriptionCheckoutBusy, setSubscriptionCheckoutBusy] = useState(false)
   const uid = user.uid
-  const currentClass = dashboard?.classes?.find((item) => item.id === dashboard.attendanceClassId) || dashboard?.classes?.[0]
 
   const fetchDashboard = useCallback(async () => {
     const { data } = await api.get(`/dashboard/${encodeURIComponent(uid)}`)
     return data.dashboard
   }, [uid])
 
+  const currentClass = useMemo(() => {
+    if (!dashboard?.classes?.length) return null
+    return dashboard.classes.find((item) => item.id === (selectedClassId || dashboard.attendanceClassId)) || dashboard.classes[0]
+  }, [dashboard, selectedClassId])
+
   useEffect(() => {
     let isCurrent = true
     fetchDashboard().then((data) => {
       if (!isCurrent) return
       setDashboard(data)
-      const activeClass = data.classes.find((item) => item.id === data.attendanceClassId) || data.classes[0]
-      setAttendance(activeClass?.students?.map(({ id, status }) => ({ studentId: id, status })) || [])
     }).catch(() => {
       if (isCurrent) setError('We could not load your dashboard. Check that the TeachOS server and MongoDB are running.')
     }).finally(() => {
@@ -42,6 +45,14 @@ function Dashboard() {
     })
     return () => { isCurrent = false }
   }, [fetchDashboard])
+
+  useEffect(() => {
+    if (currentClass?.students) {
+      setAttendance(currentClass.students.map(({ id, status }) => ({ studentId: id, status: status || '' })))
+    } else {
+      setAttendance([])
+    }
+  }, [currentClass])
 
   useEffect(() => {
     let isCurrent = true
@@ -214,8 +225,21 @@ function Dashboard() {
                       <article className={`lesson-row${lesson.status === 'live' ? ' is-live' : ''}`} key={lesson.id}>
                         <div className="lesson-time"><strong>{lesson.time}</strong><span>{lesson.period}</span></div>
                         <div className="lesson-details">
-                          <div className="lesson-title-row">{lesson.status === 'live' && <span className="live-badge"><i /> Live now</span>}<h3>{lesson.title}</h3></div>
-                          <p><FiUsers /> {lesson.enrolled} students enrolled</p>
+                          <div className="lesson-title-row">
+                            {lesson.status === 'live' && <span className="live-badge"><i /> Live now</span>}
+                            <h3>
+                              {lesson.courseName && lesson.courseName !== lesson.title ? (
+                                <>
+                                  <span style={{ color: '#4338ca', fontWeight: 800 }}>{lesson.courseName}</span>
+                                  <span style={{ color: '#94a3b8', margin: '0 6px' }}>—</span>
+                                  <span>{lesson.title}</span>
+                                </>
+                              ) : (
+                                lesson.title
+                              )}
+                            </h3>
+                          </div>
+                          <p><FiUsers /> {lesson.enrolled} {lesson.enrolled === 1 ? 'student' : 'students'} enrolled</p>
                         </div>
                         <span className="lesson-location">{lesson.location}</span>
                       </article>
@@ -225,8 +249,38 @@ function Dashboard() {
 
                 <section className="dashboard-panel attendance-panel" id="attendance">
                   <div className="dashboard-panel-heading attendance-heading">
-                    <div><h2><FiCheck /> Quick Attendance</h2><p>{currentClass?.title || 'No class selected'} · Current session</p></div>
-                    <a href="#roster">View full roster <FiChevronRight /></a>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h2><FiCheck /> Quick Attendance</h2>
+                      <p style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {currentClass?.courseName ? <strong>{currentClass.courseName} · </strong> : null}
+                        {currentClass?.title || 'No class selected'} · Current session
+                      </p>
+                    </div>
+                    {dashboard.classes.length > 1 && (
+                      <select
+                        value={currentClass?.id || ''}
+                        onChange={(e) => setSelectedClassId(e.target.value)}
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: '#fff',
+                          color: '#1e293b',
+                          cursor: 'pointer',
+                          maxWidth: '180px',
+                        }}
+                        aria-label="Select course or class for attendance"
+                      >
+                        {dashboard.classes.map((cls) => (
+                          <option key={cls.id} value={cls.id}>
+                            {cls.courseName && cls.courseName !== cls.title ? `${cls.courseName} (${cls.title})` : cls.title}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <a href="#roster">View roster <FiChevronRight /></a>
                   </div>
                   {currentClass?.students?.length ? <>
                     <div className="attendance-list">
@@ -264,7 +318,7 @@ function Dashboard() {
                 <section className="dashboard-panel roster-panel" id="roster">
                   <div className="dashboard-panel-heading"><h2><FiUsers /> Roster Summary</h2></div>
                   <div className="roster-metrics"><div><strong>{dashboard.roster.totalStudents}</strong><span>Total students</span></div><div><strong>{dashboard.roster.activeClasses}</strong><span>Active classes</span></div></div>
-                  <div className="roster-course-list">{dashboard.classes.map((lesson) => <div className="roster-course" key={lesson.id}><span><i />{lesson.title}</span><small>{lesson.enrolled} enrolled</small></div>)}</div>
+                  <div className="roster-course-list">{dashboard.classes.map((lesson) => <div className="roster-course" key={lesson.id}><span><i />{lesson.courseName && lesson.courseName !== lesson.title ? <strong style={{ color: '#4338ca', marginRight: '4px' }}>{lesson.courseName}:</strong> : null}{lesson.title}</span><small>{lesson.enrolled} enrolled</small></div>)}</div>
                 </section>
               </div>
             </div>

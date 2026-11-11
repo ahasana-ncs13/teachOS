@@ -195,16 +195,39 @@ function DirectoryPage() {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
-  const filtered = data.items.filter((student) => `${student.name} ${student.studentId} ${student.department} ${student.enrolledClasses?.map((item) => item.title).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
+
+  const getStudentInitials = (name) => {
+    if (!name) return 'ST'
+    return name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+  }
+
+  const filtered = data.items.filter((student) => {
+    const haystack = `${student.name} ${student.studentId} ${student.department} ${student.email || ''} ${student.enrolledClasses?.map((item) => item.title).join(' ')}`.toLowerCase()
+    return haystack.includes(query.toLowerCase())
+  })
+
   const exportCsv = () => {
-    const rows = [['Name', 'Student ID', 'Email', 'Department', 'Classes', 'Attendance'], ...filtered.map((student) => [student.name, student.studentId, student.email, student.department, student.enrolledClasses?.map((item) => item.title).join('; ') || '', `${student.attendancePercent || 0}%`])]
+    const rows = [
+      ['Name', 'Student ID', 'Email', 'Phone', 'Department', 'Enrolled Classes', 'Attendance Rate', 'Enrolled Date'],
+      ...filtered.map((student) => [
+        student.name,
+        student.studentId,
+        student.email || '',
+        student.phone || '',
+        student.department || '',
+        student.enrolledClasses?.map((item) => item.title).join('; ') || '',
+        `${student.attendancePercent || 0}%`,
+        student.enrolledAt ? new Date(student.enrolledAt).toLocaleDateString() : '',
+      ]),
+    ]
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\r\n')
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    link.download = 'teachos-students.csv'
+    link.download = 'teachos-students-directory.csv'
     link.click()
     URL.revokeObjectURL(link.href)
   }
+
   const submitStudent = async (event) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -225,18 +248,175 @@ function DirectoryPage() {
     }
   }
 
-  return <WorkspaceFrame title="Student Directory" description="Manage your enrolled students across all classes." onQuickAction={() => setQuickOpen(true)}>
+  const totalEnrolled = data.items.length
+  const avgAttendance = totalEnrolled
+    ? Math.round(data.items.reduce((sum, s) => sum + (s.attendancePercent || 0), 0) / totalEnrolled)
+    : 0
+  const activeDepartments = new Set(data.items.map((s) => s.department).filter(Boolean)).size
+
+  return <WorkspaceFrame title="Student Directory" description="Manage your enrolled students across all course listings and classes." onQuickAction={() => setQuickOpen(true)}>
     <ResultBanner error={data.error || classes.error} notice={notice} />
-    <div className="workspace-toolbar"><label><FiSearch /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or class..." /></label><div className="workspace-toolbar-actions"><button className="workspace-secondary" type="button" onClick={exportCsv}><FiDownload /> Export CSV</button><button className="workspace-primary" type="button" onClick={() => setShowForm((value) => !value)}><FiPlus /> Add student</button></div></div>
-    <div className="workspace-metrics"><article><span>Total enrolled</span><strong>{data.items.length}</strong></article><article><span>Average attendance</span><strong>{data.items.length ? `${(data.items.reduce((sum, student) => sum + (student.attendancePercent || 0), 0) / data.items.length).toFixed(1)}%` : '—'}</strong></article><article><span>Active departments</span><strong>{new Set(data.items.map((student) => student.department)).size}</strong></article></div>
+    <div className="workspace-toolbar">
+      <label>
+        <FiSearch />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search name, ID, email, department, or course..."
+        />
+      </label>
+      <div className="workspace-toolbar-actions">
+        <button className="workspace-secondary" type="button" onClick={exportCsv}>
+          <FiDownload /> Export CSV
+        </button>
+        <button className="workspace-primary" type="button" onClick={() => setShowForm((value) => !value)}>
+          <FiPlus /> Add student
+        </button>
+      </div>
+    </div>
+
+    <div className="workspace-metrics">
+      <article>
+        <span>Total enrolled students</span>
+        <strong>{totalEnrolled}</strong>
+      </article>
+      <article>
+        <span>Average attendance</span>
+        <strong>{totalEnrolled ? `${avgAttendance}%` : '—'}</strong>
+      </article>
+      <article>
+        <span>Active departments &amp; categories</span>
+        <strong>{activeDepartments}</strong>
+      </article>
+    </div>
+
     {showForm && <form className="workspace-form workspace-class-form" onSubmit={submitStudent}>
-      <h2>Add a student</h2><label>Full name<input name="name" required maxLength="120" /></label>
-      <div className="workspace-form-row"><label>Student ID (optional)<input name="studentId" maxLength="64" /></label><label>Email<input name="email" type="email" maxLength="254" /></label></div>
-      <label>Department<input name="department" maxLength="100" placeholder="Sciences" /></label>
-      <label>Enroll in classes<select name="classIds" multiple size={Math.min(Math.max(classes.items.length, 2), 5)}>{classes.items.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}</select><small>Hold Ctrl (Windows) or Command (Mac) to select multiple classes.</small></label>
-      <div className="workspace-form-actions"><button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Save student'}</button><button className="workspace-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button></div>
+      <h2>Add a student</h2>
+      <label>Full name<input name="name" required maxLength="120" placeholder="e.g. Ayesha Rahman" /></label>
+      <div className="workspace-form-row">
+        <label>Student ID (optional)<input name="studentId" maxLength="64" placeholder="e.g. STU-2026-01" /></label>
+        <label>Email<input name="email" type="email" maxLength="254" placeholder="student@example.com" /></label>
+      </div>
+      <label>Department / Category<input name="department" maxLength="100" placeholder="Sciences / Web Development" /></label>
+      <label>
+        Enroll in courses or classes
+        <select name="classIds" multiple size={Math.min(Math.max(classes.items.length, 2), 6)}>
+          {classes.items.map((item) => (
+            <option value={item.id} key={item.id}>
+              {item.courseName && item.courseName !== item.title ? `${item.courseName} - ${item.title}` : item.title}
+            </option>
+          ))}
+        </select>
+        <small>Hold Ctrl (Windows) or Command (Mac) to select multiple classes or courses.</small>
+      </label>
+      <div className="workspace-form-actions">
+        <button className="workspace-primary" disabled={busy}>{busy ? 'Saving...' : 'Save student'}</button>
+        <button className="workspace-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button>
+      </div>
     </form>}
-    {data.loading ? <p className="workspace-empty">Loading students...</p> : <div className="workspace-table-wrap"><table className="workspace-table"><thead><tr><th>Student</th><th>Student ID</th><th>Department</th><th>Enrolled classes</th><th>Attendance</th></tr></thead><tbody>{filtered.map((student) => <tr key={student.id}><td><strong>{student.name}</strong><small>{student.email || 'No email added'}</small></td><td>{student.studentId}</td><td>{student.department}</td><td>{student.enrolledClasses?.map((item) => <span className="workspace-tag" key={item.id}>{item.title}</span>) || '—'}</td><td>{student.attendancePercent || 0}%</td></tr>)}</tbody></table>{!filtered.length && <p className="workspace-empty">No students found.</p>}</div>}
+
+    {data.loading ? (
+      <p className="workspace-empty">Loading students...</p>
+    ) : (
+      <div className="workspace-table-wrap">
+        <table className="workspace-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Student ID</th>
+              <th>Department / Category</th>
+              <th>Enrolled Courses &amp; Batches</th>
+              <th>Attendance</th>
+              <th>Enrollment Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((student) => {
+              const attRate = student.attendancePercent || 0
+              const attColor = attRate >= 80 ? '#15803d' : attRate >= 50 ? '#b45309' : '#b91c1c'
+              const attBg = attRate >= 80 ? '#dcfce7' : attRate >= 50 ? '#fef3c7' : '#fee2e2'
+              return (
+                <tr key={student.id}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                      <span
+                        style={{
+                          width: 32,
+                          height: 32,
+                          flexShrink: 0,
+                          borderRadius: '50%',
+                          background: '#e0e7ff',
+                          color: '#4338ca',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        {getStudentInitials(student.name)}
+                      </span>
+                      <div>
+                        <strong style={{ fontSize: '0.85rem', color: '#0f172a' }}>{student.name}</strong>
+                        <small style={{ color: '#64748b' }}>{student.email || 'No email registered'}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, fontSize: '0.75rem', color: '#334155' }}>
+                      {student.studentId}
+                    </code>
+                  </td>
+                  <td>
+                    <span className="workspace-tag" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#475569' }}>
+                      {student.department || 'General'}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {student.enrolledClasses?.length ? (
+                        student.enrolledClasses.map((item) => (
+                          <span
+                            className="workspace-tag"
+                            key={item.id}
+                            style={{ background: '#e0e7ff', color: '#3730a3', fontWeight: 600 }}
+                          >
+                            {item.title}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={{ color: '#94a3b8' }}>No classes</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        color: attColor,
+                        background: attBg,
+                      }}
+                    >
+                      {attRate}%
+                    </span>
+                  </td>
+                  <td>
+                    <small style={{ color: '#64748b', fontSize: '0.8rem' }}>
+                      {student.enrolledAt ? new Date(student.enrolledAt).toLocaleDateString() : '—'}
+                    </small>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {!filtered.length && <p className="workspace-empty">No students found.</p>}
+      </div>
+    )}
     {quickOpen && <QuickActionChooser close={() => setQuickOpen(false)} />}
   </WorkspaceFrame>
 }
